@@ -1,0 +1,40 @@
+# Dependencias
+node_modules/
+**/node_modules/
+
+# Variables de entorno
+.env
+*.env
+*.env.example
+
+iniciar-backend.bat
+iniciar-frontend.bat
+iniciar-solo-db.bat
+iniciar-todo-docker.bat
+COMO_CORRER_LOCAL.md
+CONECTAR_DBEAVER.md
+DISEÑO_TECNICO_MVP_COSECHA.md
+
+# Builds
+dist/
+build/
+**/dist/
+**/build/
+
+# Prisma
+backend/prisma/*.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/.vite/

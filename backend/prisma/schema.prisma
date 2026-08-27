@@ -1,0 +1,615 @@
+// ==========================================================================
+// SIGA-DDI — Esquema Prisma (MVP Módulo de Cosecha)
+// Estrategia multitenant: base compartida + columna tenant_id.
+// Nombres de columnas/tablas en snake_case para SQL limpio (@map / @@map).
+// ==========================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" = tu sistema (Windows en modo dev). El target de Debian es el que
+  // usa el contenedor Docker (evita el error de OpenSSL del motor de Prisma).
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN_TENANT
+  OPERADOR_COSECHA
+  LECTOR
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+enum HarvestStatus {
+  ACTIVE
+  CANCELLED
+}
+
+// Unidad de peso de PRESENTACIÓN/ENTRADA por empresa (la unidad canónica
+// interna siempre es GRAMOS; esto solo afecta el frontend).
+enum WeightUnit {
+  GRAMS
+  KILOGRAMS
+}
+
+// Estrategia de identidad operativa por empresa.
+enum IdentityStrategy {
+  NAMED_USERS
+  SHARED_OPERATIONAL_USERS
+  HYBRID
+}
+
+// Contexto/posición operativa (extensible: QUALITY_CONTROL, PACKING, etc.).
+enum OperationalContext {
+  HARVEST_WEIGHING
+  POSTHARVEST_AUTHORIZATION
+}
+
+// -------------------------------------------------------------------------
+// Tenant / Cliente
+// -------------------------------------------------------------------------
+model Tenant {
+  id         String     @id @default(uuid())
+  nombre     String
+  nit        String?
+  status     Status     @default(ACTIVE)
+  // Preferencia de unidad de peso para captura/visualización (default GRAMS).
+  weightUnit WeightUnit @default(GRAMS) @map("weight_unit")
+  // Estrategia de identidad operativa (default NAMED_USERS = comportamiento actual).
+  identityStrategy IdentityStrategy @default(NAMED_USERS) @map("identity_strategy")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  farms          Farm[]
+  users          User[]
+  workers        Worker[]
+  lots           Lot[]
+  containers     Container[]
+  qualities      Quality[]
+  harvestRecords HarvestRecord[]
+  fieldConfigs   TenantModuleFieldConfig[]
+
+  @@map("tenants")
+}
+
+// -------------------------------------------------------------------------
+// Finca
+// -------------------------------------------------------------------------
+model Farm {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  nombre    String
+  ubicacion String?
+  status    Status   @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  workers        Worker[]
+  lots           Lot[]
+  harvestRecords HarvestRecord[]
+
+  @@unique([tenantId, nombre])
+  @@index([tenantId])
+  @@map("farms")
+}
+
+// -------------------------------------------------------------------------
+// Usuario (tenant_id nulo solo para SUPER_ADMIN global)
+// -------------------------------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String?  @map("tenant_id")
+  nombre       String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  status       Status   @default(ACTIVE)
+  // Si está definido, la cuenta es una CUENTA OPERATIVA COMPARTIDA de ese contexto.
+  operationalContext OperationalContext? @map("operational_context")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant?          @relation(fields: [tenantId], references: [id])
+  createdHarvest HarvestRecord[]  @relation("HarvestCreatedBy")
+  updatedHarvest HarvestRecord[]  @relation("HarvestUpdatedBy")
+  permissions    UserPermission[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// -------------------------------------------------------------------------
+// Worker / Cosechador
+// -------------------------------------------------------------------------
+model Worker {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  farmId        String   @map("farm_id")
+  codigoInterno String   @map("codigo_interno")
+  nombre        String
+  documento     String?
+  areaTrabajo   String?  @map("area_trabajo")
+  status        Status   @default(ACTIVE)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  farm           Farm            @relation(fields: [farmId], references: [id])
+  harvestRecords HarvestRecord[]
+
+  @@unique([tenantId, farmId, codigoInterno])
+  @@index([tenantId])
+  @@index([farmId])
+  @@map("workers")
+}
+
+// -------------------------------------------------------------------------
+// Lot / Lote (la variedad vive aquí: fuente única)
+// -------------------------------------------------------------------------
+model Lot {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  farmId        String   @map("farm_id")
+  nombreLote    String   @map("nombre_lote")
+  variedad      String
+  numeroPlantas Int?     @map("numero_plantas")
+  status        Status   @default(ACTIVE)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  farm           Farm            @relation(fields: [farmId], references: [id])
+  harvestRecords HarvestRecord[]
+
+  @@unique([farmId, nombreLote])
+  @@index([tenantId])
+  @@index([farmId])
+  @@map("lots")
+}
+
+// -------------------------------------------------------------------------
+// Container / Recipiente
+// -------------------------------------------------------------------------
+model Container {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  nombre     String
+  pesoGramos Int      @map("peso_gramos")
+  status     Status   @default(ACTIVE)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  harvestRecordContainers HarvestRecordContainer[]
+
+  @@unique([tenantId, nombre])
+  @@index([tenantId])
+  @@map("containers")
+}
+
+// -------------------------------------------------------------------------
+// Quality / Calidad
+// -------------------------------------------------------------------------
+model Quality {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  nombre           String
+  descripcion      String?
+  visibleEnCosecha Boolean  @default(true) @map("visible_en_cosecha")
+  status           Status   @default(ACTIVE)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  harvestRecords HarvestRecord[]
+
+  @@unique([tenantId, nombre])
+  @@index([tenantId])
+  @@map("qualities")
+}
+
+// -------------------------------------------------------------------------
+// HarvestRecord / Registro de cosecha (cabecera)
+// -------------------------------------------------------------------------
+model HarvestRecord {
+  id                         String        @id @default(uuid())
+  tenantId                   String        @map("tenant_id")
+  farmId                     String        @map("farm_id")
+  fecha                      DateTime      @db.Date
+  workerId                   String        @map("worker_id")
+  qualityId                  String        @map("quality_id")
+  lotId                      String        @map("lot_id")
+  variedad                   String
+  pesoBrutoGramos            Int           @map("peso_bruto_gramos")
+  pesoTotalRecipientesGramos Int           @map("peso_total_recipientes_gramos")
+  gramosCosechados           Int           @map("gramos_cosechados")
+  primeraFila                String?       @map("primera_fila")
+  ultimaFila                 String?       @map("ultima_fila")
+  estadoRoja                 Boolean?      @map("estado_roja")
+  observaciones              String?
+  status                     HarvestStatus @default(ACTIVE)
+  createdBy                  String        @map("created_by")
+  createdByWorkerId          String?       @map("created_by_worker_id")
+  createdByActorName         String?       @map("created_by_actor_name")
+  updatedBy                  String?       @map("updated_by")
+  createdAt                  DateTime      @default(now()) @map("created_at")
+  updatedAt                  DateTime      @updatedAt @map("updated_at")
+
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id])
+  farm       Farm                     @relation(fields: [farmId], references: [id])
+  worker     Worker                   @relation(fields: [workerId], references: [id])
+  quality    Quality                  @relation(fields: [qualityId], references: [id])
+  lot        Lot                      @relation(fields: [lotId], references: [id])
+  creator    User                     @relation("HarvestCreatedBy", fields: [createdBy], references: [id])
+  updater    User?                    @relation("HarvestUpdatedBy", fields: [updatedBy], references: [id])
+  containers HarvestRecordContainer[]
+
+  @@index([tenantId])
+  @@index([tenantId, fecha])
+  @@index([tenantId, farmId])
+  @@index([workerId])
+  @@index([lotId])
+  @@map("harvest_records")
+}
+
+// -------------------------------------------------------------------------
+// HarvestRecordContainer / Recipientes por registro (detalle)
+// -------------------------------------------------------------------------
+model HarvestRecordContainer {
+  id                 String   @id @default(uuid())
+  harvestRecordId    String   @map("harvest_record_id")
+  containerId        String   @map("container_id")
+  unidades           Int
+  pesoUnitarioGramos Int      @map("peso_unitario_gramos")
+  pesoTotalGramos    Int      @map("peso_total_gramos")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  harvestRecord HarvestRecord @relation(fields: [harvestRecordId], references: [id], onDelete: Cascade)
+  container     Container     @relation(fields: [containerId], references: [id])
+
+  @@index([harvestRecordId])
+  @@map("harvest_record_containers")
+}
+
+// -------------------------------------------------------------------------
+// TenantModuleFieldConfig / Configuración de campos por tenant
+// -------------------------------------------------------------------------
+model TenantModuleFieldConfig {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  moduleName String   @map("module_name")
+  fieldName  String   @map("field_name")
+  isRequired Boolean  @default(false) @map("is_required")
+  isVisible  Boolean  @default(true) @map("is_visible")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, moduleName, fieldName])
+  @@index([tenantId])
+  @@map("tenant_module_field_config")
+}
+
+// ==========================================================================
+// DOCUMENTOS DE COSECHA: Remisiones y Órdenes de Producción
+// (referencias a entidades existentes como columnas escalares; las FKs se
+// crean en la migración SQL para no modificar los modelos existentes)
+// ==========================================================================
+
+enum RemissionStatus {
+  PENDIENTE_RECEPCION
+  RECIBIDA
+  ANULADA
+}
+
+// Estado de recepción por calidad (Lote + Calidad) dentro de una remisión.
+enum RemissionDetailStatus {
+  PENDIENTE_RECEPCION
+  RECIBIDA
+  RECHAZADA
+}
+
+enum ProductionOrderStatus {
+  PENDIENTE_ACEPTACION
+  ACEPTADA
+  ANULADA
+}
+
+enum DocumentType {
+  REMISSION
+  PRODUCTION_ORDER
+}
+
+enum DocumentEventType {
+  CREATED
+  RECEIVED
+  ACCEPTED
+  DUPLICATE_ATTEMPT
+  STATUS_CHANGE
+}
+
+// -------------------------------------------------------------------------
+// Remisión (entrega por lote desde Cosecha hacia Postcosecha)
+// -------------------------------------------------------------------------
+model HarvestRemission {
+  id                  String          @id @default(uuid())
+  tenantId            String          @map("tenant_id")
+  farmId              String          @map("farm_id")
+  lotId               String          @map("lot_id")
+  fecha               DateTime        @db.Date
+  sequenceNumber      Int             @map("sequence_number")
+  documentNumber      String          @map("document_number")
+  status              RemissionStatus @default(PENDIENTE_RECEPCION)
+  totalPesoGramos     Int             @map("total_peso_gramos")
+  totalCanastillas    Int             @map("total_canastillas")
+  registrosIncluidos  Int             @map("registros_incluidos")
+  createdBy           String          @map("created_by")
+  // Identidad operativa efectiva (snapshot) de quien creó.
+  createdByWorkerId   String?         @map("created_by_worker_id")
+  createdByActorName  String?         @map("created_by_actor_name")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  receivedBy          String?         @map("received_by")
+  receivedByWorkerId  String?         @map("received_by_worker_id")
+  receivedByActorName String?         @map("received_by_actor_name")
+  receivedAt          DateTime?       @map("received_at")
+  receivedPesoGramos  Int?            @map("received_peso_gramos")
+  receivedCanastillas Int?            @map("received_canastillas")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  version             Int             @default(0)
+
+  details    HarvestRemissionDetail[]
+  sources    HarvestRemissionSource[]
+  orderLinks ProductionOrderRemission[]
+
+  @@unique([tenantId, documentNumber])
+  @@index([tenantId])
+  @@index([tenantId, fecha])
+  @@index([tenantId, farmId])
+  @@index([status])
+  @@map("harvest_remissions")
+}
+
+model HarvestRemissionDetail {
+  id          String                @id @default(uuid())
+  remissionId String                @map("remission_id")
+  qualityId   String                @map("quality_id")
+  pesoGramos  Int                   @map("peso_gramos")
+  canastillas Int
+  // Recepción/validación independiente por calidad (Lote + Calidad).
+  status      RemissionDetailStatus @default(PENDIENTE_RECEPCION)
+  receivedBy  String?               @map("received_by")
+  receivedAt  DateTime?             @map("received_at")
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  remission HarvestRemission @relation(fields: [remissionId], references: [id], onDelete: Cascade)
+
+  @@index([remissionId])
+  @@map("harvest_remission_details")
+}
+
+model HarvestRemissionSource {
+  id                  String   @id @default(uuid())
+  remissionId         String   @map("remission_id")
+  harvestRecordId     String   @map("harvest_record_id")
+  pesoGramosSnapshot  Int      @map("peso_gramos_snapshot")
+  canastillasSnapshot Int      @map("canastillas_snapshot")
+  qualityIdSnapshot   String   @map("quality_id_snapshot")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  remission HarvestRemission @relation(fields: [remissionId], references: [id], onDelete: Cascade)
+
+  @@unique([remissionId, harvestRecordId])
+  @@index([harvestRecordId])
+  @@map("harvest_remission_sources")
+}
+
+// -------------------------------------------------------------------------
+// Orden de producción (consolidado diario por finca)
+// -------------------------------------------------------------------------
+model ProductionOrder {
+  id                  String                @id @default(uuid())
+  tenantId            String                @map("tenant_id")
+  farmId              String                @map("farm_id")
+  fecha               DateTime              @db.Date
+  sequenceNumber      Int                   @map("sequence_number")
+  documentNumber      String                @map("document_number")
+  status              ProductionOrderStatus @default(PENDIENTE_ACEPTACION)
+  totalPesoGramos     Int                   @map("total_peso_gramos")
+  totalCanastillas    Int                   @map("total_canastillas")
+  lotesIncluidos      Int                   @map("lotes_incluidos")
+  registrosIncluidos  Int                   @map("registros_incluidos")
+  createdBy           String                @map("created_by")
+  createdByWorkerId   String?               @map("created_by_worker_id")
+  createdByActorName  String?               @map("created_by_actor_name")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  acceptedBy          String?               @map("accepted_by")
+  acceptedByWorkerId  String?               @map("accepted_by_worker_id")
+  acceptedByActorName String?               @map("accepted_by_actor_name")
+  acceptedAt          DateTime?             @map("accepted_at")
+  acceptedPesoGramos  Int?                  @map("accepted_peso_gramos")
+  acceptedCanastillas Int?                  @map("accepted_canastillas")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  version             Int                   @default(0)
+
+  qualityDetails    ProductionOrderQualityDetail[]
+  lotDetails        ProductionOrderLotDetail[]
+  lotQualityDetails ProductionOrderLotQualityDetail[]
+  sources           ProductionOrderSource[]
+  remissionLinks    ProductionOrderRemission[]
+
+  @@unique([tenantId, documentNumber])
+  @@index([tenantId])
+  @@index([tenantId, fecha])
+  @@index([tenantId, farmId])
+  @@index([status])
+  @@map("production_orders")
+}
+
+model ProductionOrderQualityDetail {
+  id                String @id @default(uuid())
+  productionOrderId String @map("production_order_id")
+  qualityId         String @map("quality_id")
+  pesoGramos        Int    @map("peso_gramos")
+  canastillas       Int
+
+  order ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+
+  @@index([productionOrderId])
+  @@map("production_order_quality_details")
+}
+
+model ProductionOrderLotDetail {
+  id                String @id @default(uuid())
+  productionOrderId String @map("production_order_id")
+  lotId             String @map("lot_id")
+  pesoGramos        Int    @map("peso_gramos")
+  canastillas       Int
+
+  order ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+
+  @@index([productionOrderId])
+  @@map("production_order_lot_details")
+}
+
+// Detalle granular por Lote + Calidad (base independiente por calidad de cada lote).
+model ProductionOrderLotQualityDetail {
+  id                String @id @default(uuid())
+  productionOrderId String @map("production_order_id")
+  lotId             String @map("lot_id")
+  qualityId         String @map("quality_id")
+  pesoGramos        Int    @map("peso_gramos")
+  canastillas       Int
+
+  order ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+
+  @@index([productionOrderId])
+  @@map("production_order_lot_quality_details")
+}
+
+model ProductionOrderSource {
+  id                  String @id @default(uuid())
+  productionOrderId   String @map("production_order_id")
+  harvestRecordId     String @map("harvest_record_id")
+  pesoGramosSnapshot  Int    @map("peso_gramos_snapshot")
+  canastillasSnapshot Int    @map("canastillas_snapshot")
+  lotIdSnapshot       String @map("lot_id_snapshot")
+  qualityIdSnapshot   String @map("quality_id_snapshot")
+
+  order ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([productionOrderId, harvestRecordId])
+  @@index([harvestRecordId])
+  @@map("production_order_sources")
+}
+
+model ProductionOrderRemission {
+  id                String @id @default(uuid())
+  productionOrderId String @map("production_order_id")
+  remissionId       String @map("remission_id")
+
+  order     ProductionOrder  @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  remission HarvestRemission @relation(fields: [remissionId], references: [id], onDelete: Cascade)
+
+  @@unique([productionOrderId, remissionId])
+  @@index([remissionId])
+  @@map("production_order_remissions")
+}
+
+// -------------------------------------------------------------------------
+// Consecutivos y auditoría de documentos
+// -------------------------------------------------------------------------
+model DocumentSequence {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  documentType  DocumentType @map("document_type")
+  farmId        String?      @map("farm_id")
+  prefix        String
+  year          Int?
+  currentNumber Int          @default(0) @map("current_number")
+  paddingLength Int          @default(6) @map("padding_length")
+  active        Boolean      @default(true)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("document_sequences")
+}
+
+model DocumentEvent {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  documentType   DocumentType      @map("document_type")
+  documentId     String            @map("document_id")
+  event          DocumentEventType
+  previousStatus String?           @map("previous_status")
+  newStatus      String?           @map("new_status")
+  userId         String?           @map("user_id")
+  metadata       Json?
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@index([tenantId, documentType, documentId])
+  @@map("document_events")
+}
+
+// ==========================================================================
+// PERMISOS GRANULARES E IDENTIDAD OPERATIVA
+// ==========================================================================
+
+// Override de permisos por usuario. Si un usuario tiene filas aquí, ese es su
+// set EFECTIVO; si no tiene ninguna, se usa la plantilla de su rol.
+model UserPermission {
+  id         String @id @default(uuid())
+  userId     String @map("user_id")
+  permission String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@index([userId])
+  @@map("user_permissions")
+}
+
+// Configuración por empresa de cada posición/contexto operativo.
+model OperationalPositionConfig {
+  id                     String             @id @default(uuid())
+  tenantId               String             @map("tenant_id")
+  context                OperationalContext
+  enabled                Boolean            @default(true)
+  requiresAssignedWorker Boolean            @default(true) @map("requires_assigned_worker")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  @@unique([tenantId, context])
+  @@index([tenantId])
+  @@map("operational_position_configs")
+}
+
+// Quién ocupa (o ocupó) una posición operativa. Cardinalidad 1 activo por
+// (tenant, contexto). Es su propio histórico: al reasignar se cierra la anterior.
+model OperationalAssignment {
+  id               String             @id @default(uuid())
+  tenantId         String             @map("tenant_id")
+  context          OperationalContext
+  workerId         String             @map("worker_id")
+  active           Boolean            @default(true)
+  validFrom        DateTime           @default(now()) @map("valid_from")
+  validTo          DateTime?          @map("valid_to")
+  assignedByUserId String?            @map("assigned_by_user_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  @@index([tenantId, context])
+  @@index([tenantId, context, active])
+  @@index([workerId])
+  @@map("operational_assignments")
+}

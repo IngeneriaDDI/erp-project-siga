@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   PALETA CORPORATIVA — cambia estos valores para reajustar toda la marca.
+   Formato: canales RGB separados por espacio (para soportar opacidad Tailwind).
+   Identidad "arándano": azul-violeta como primario + verde agrícola de apoyo.
+   ========================================================================== */
+:root {
+  --color-primary: 79 70 229; /* #4F46E5 azul-violeta (arándano) */
+  --color-primary-dark: 67 56 202; /* #4338CA */
+  --color-primary-light: 238 242 255; /* #EEF2FF */
+  --color-secondary: 5 150 105; /* #059669 verde agrícola */
+  --color-accent: 245 158 11; /* #F59E0B ámbar */
+  --color-background: 248 250 252; /* #F8FAFC */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-border: 226 232 240; /* #E2E8F0 */
+  --color-content: 15 23 42; /* #0F172A texto principal */
+  --color-muted: 100 116 139; /* #64748B texto secundario */
+  --color-success: 22 163 74; /* #16A34A */
+  --color-warning: 217 119 6; /* #D97706 */
+  --color-danger: 220 38 38; /* #DC2626 */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-content antialiased;
+}
