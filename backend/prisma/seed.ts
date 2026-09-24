@@ -99,9 +99,9 @@ async function main() {
   for (const w of workersData) {
     await prisma.worker.upsert({
       where: {
-        tenantId_farmId_codigoInterno: {
+        // Código interno único por empresa (ya no por finca).
+        tenantId_codigoInterno: {
           tenantId: tenant.id,
-          farmId: farm.id,
           codigoInterno: w.codigoInterno,
         },
       },

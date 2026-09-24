@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useAsyncData } from '../hooks/useAsyncData';
@@ -8,7 +8,7 @@ import { listWorkers } from '../services/workers';
 import { listLots } from '../services/lots';
 import { listContainers } from '../services/containers';
 import { listQualities } from '../services/qualities';
-import { getHarvestFieldConfig } from '../services/fieldConfig';
+import { getHarvestFieldConfig, getHarvestTenantSettings } from '../services/fieldConfig';
 import {
   createHarvest,
   getHarvest,
@@ -18,7 +18,7 @@ import {
 import { harvestSchema } from '../schemas/harvest';
 import { getApiErrorMessage } from '../lib/api';
 import { Input } from '../components/ui/Input';
-import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Button } from '../components/ui/Button';
 import { Toggle } from '../components/ui/Toggle';
 import { FormSection } from '../components/ui/FormSection';
@@ -64,8 +64,11 @@ export default function HarvestFormPage() {
   const containersQ = useAsyncData(() => listContainers('ACTIVE'), []);
   const qualities = useAsyncData(() => listQualities({ status: 'ACTIVE', visibleEnCosecha: true }), []);
   const config = useAsyncData(getHarvestFieldConfig, []);
+  // Ajuste por empresa: ¿se filtran los trabajadores por finca? (resuelto por el tenant actual).
+  const tenantSettings = useAsyncData(getHarvestTenantSettings, []);
+  const filterByFarm = tenantSettings.data?.workersFilteredByFarm ?? true;
 
-  const { register, control, handleSubmit, watch, reset, setValue } = useForm<FormValues>({
+  const { register, control, handleSubmit, watch, reset, setValue, getValues } = useForm<FormValues>({
     defaultValues: {
       fecha: today(),
       farmId: '',
@@ -116,6 +119,17 @@ export default function HarvestFormPage() {
     }
   }, [editing, id, reset, weightUnit]);
 
+  // Prellena el recipiente por defecto (el marcado como predeterminado), solo al crear.
+  useEffect(() => {
+    if (editing) return;
+    const def = (containersQ.data ?? []).find((c) => c.isDefault);
+    if (!def) return;
+    const current = getValues('containers');
+    if (current?.length === 1 && !current[0]?.containerId) {
+      setValue('containers.0.containerId', def.id);
+    }
+  }, [editing, containersQ.data, getValues, setValue]);
+
   const farmId = watch('farmId');
   const lotId = watch('lotId');
   const rows = watch('containers');
@@ -124,7 +138,11 @@ export default function HarvestFormPage() {
   const pesoBruto = displayToGrams(pesoBrutoInput, weightUnit);
   const estadoRojaVal = watch('estadoRoja');
 
-  const farmWorkers = (workers.data ?? []).filter((w) => w.farmId === farmId);
+  // Si la empresa filtra por finca, solo trabajadores de la finca; si no, todos.
+  const farmWorkers = filterByFarm
+    ? (workers.data ?? []).filter((w) => w.farmId === farmId)
+    : (workers.data ?? []);
+  const farmNameById = new Map((farms.data ?? []).map((f) => [f.id, f.nombre]));
   const farmLots = (lots.data ?? []).filter((l) => l.farmId === farmId);
   const variedad = (lots.data ?? []).find((l) => l.id === lotId)?.variedad ?? '';
 
@@ -138,8 +156,6 @@ export default function HarvestFormPage() {
   const cfg = (field: string) => config.data?.find((c) => c.fieldName === field);
   const isVisible = (f: string) => cfg(f)?.isVisible ?? true;
   const isRequired = (f: string) => cfg(f)?.isRequired ?? false;
-
-  const farmReg = register('farmId');
 
   // --- Lógica de filas (primera/última) ---
   const anyFilaVisible = isVisible('primera_fila') || isVisible('ultima_fila');
@@ -218,7 +234,13 @@ export default function HarvestFormPage() {
   });
 
   const dataLoading =
-    farms.loading || workers.loading || lots.loading || containersQ.loading || qualities.loading || config.loading;
+    farms.loading ||
+    workers.loading ||
+    lots.loading ||
+    containersQ.loading ||
+    qualities.loading ||
+    config.loading ||
+    tenantSettings.loading;
 
   if (dataLoading) return <Spinner label="Cargando formulario…" />;
 
@@ -247,46 +269,77 @@ export default function HarvestFormPage() {
         <FormSection title="Datos generales">
           <div className="grid gap-4 sm:grid-cols-2">
             <Input label="Fecha" type="date" {...register('fecha')} />
-            <Select
-              label="Finca"
-              {...farmReg}
-              onChange={(e) => {
-                farmReg.onChange(e);
-                setValue('workerId', '');
-                setValue('lotId', '');
-              }}
-            >
-              <option value="">— Selecciona —</option>
-              {(farms.data ?? []).map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nombre}
-                </option>
-              ))}
-            </Select>
-            <Select label="Trabajador" {...register('workerId')} disabled={!farmId}>
-              <option value="">— Selecciona —</option>
-              {farmWorkers.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.codigoInterno} · {w.nombre}
-                </option>
-              ))}
-            </Select>
-            <Select label="Calidad" {...register('qualityId')}>
-              <option value="">— Selecciona —</option>
-              {(qualities.data ?? []).map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.nombre}
-                </option>
-              ))}
-            </Select>
-            <Select label="Lote" {...register('lotId')} disabled={!farmId}>
-              <option value="">— Selecciona —</option>
-              {farmLots.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.nombreLote}
-                </option>
-              ))}
-            </Select>
+            <Controller
+              control={control}
+              name="farmId"
+              render={({ field }) => (
+                <SearchableSelect
+                  label="Finca"
+                  value={field.value ?? ''}
+                  onChange={(v) => {
+                    field.onChange(v);
+                    setValue('workerId', '');
+                    setValue('lotId', '');
+                  }}
+                  options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
+                />
+              )}
+            />
+            <Controller
+              control={control}
+              name="workerId"
+              render={({ field }) => (
+                <SearchableSelect
+                  label="Trabajador"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  disabled={filterByFarm && !farmId}
+                  placeholder={
+                    filterByFarm && !farmId ? 'Elige una finca primero' : '— Selecciona —'
+                  }
+                  options={farmWorkers.map((w) => ({
+                    value: w.id,
+                    // Con el filtro apagado se muestra la finca (home) para reducir errores.
+                    label: filterByFarm
+                      ? `${w.codigoInterno} · ${w.nombre}`
+                      : `${w.codigoInterno} · ${w.nombre} — ${farmNameById.get(w.farmId) ?? 'finca'}`,
+                    keywords: `${w.codigoInterno} ${w.nombre} ${w.documento ?? ''} ${
+                      farmNameById.get(w.farmId) ?? ''
+                    }`,
+                  }))}
+                />
+              )}
+            />
+            <Controller
+              control={control}
+              name="qualityId"
+              render={({ field }) => (
+                <SearchableSelect
+                  label="Calidad"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  options={(qualities.data ?? []).map((q) => ({ value: q.id, label: q.nombre }))}
+                />
+              )}
+            />
+            <Controller
+              control={control}
+              name="lotId"
+              render={({ field }) => (
+                <SearchableSelect
+                  label="Lote"
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  disabled={!farmId}
+                  placeholder={farmId ? '— Selecciona —' : 'Elige una finca primero'}
+                  options={farmLots.map((l) => ({
+                    value: l.id,
+                    label: l.nombreLote,
+                    keywords: `${l.nombreLote} ${l.variedad}`,
+                  }))}
+                />
+              )}
+            />
             <Input label="Variedad (del lote)" value={variedad} readOnly disabled />
           </div>
         </FormSection>
@@ -310,6 +363,7 @@ export default function HarvestFormPage() {
           <DynamicContainerRows
             fields={fields}
             register={register}
+            control={control}
             remove={remove}
             append={() => append({ containerId: '', unidades: 1 })}
             containers={containersQ.data ?? []}

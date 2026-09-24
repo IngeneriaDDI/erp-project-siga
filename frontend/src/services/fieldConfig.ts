@@ -8,3 +8,9 @@ export const updateHarvestFieldConfig = (items: FieldConfigEntry[]) =>
   api
     .patch<FieldConfigEntry[]>('/module-field-config/harvest', { items })
     .then((r) => r.data);
+
+// Ajustes de cosecha a nivel empresa (resuelto por el tenant actual).
+export const getHarvestTenantSettings = () =>
+  api
+    .get<{ workersFilteredByFarm: boolean }>('/module-field-config/harvest-settings')
+    .then((r) => r.data);

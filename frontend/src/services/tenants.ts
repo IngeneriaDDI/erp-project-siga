@@ -17,6 +17,8 @@ export const updateTenant = (
     nit?: string;
     weightUnit?: WeightUnit;
     identityStrategy?: IdentityStrategy;
+    defaultContainerId?: string | null;
+    workersFilteredByFarm?: boolean;
   },
 ) => api.patch<Tenant>(`/tenants/${id}`, body).then((r) => r.data);
 

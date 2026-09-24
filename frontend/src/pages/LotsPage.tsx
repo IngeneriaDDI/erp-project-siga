@@ -1,8 +1,10 @@
 import { CrudPage } from '../components/CrudPage';
+import { MasterImportButton } from '../components/MasterImportButton';
+import { STATUS_CREATE_FIELD } from './WorkersPage';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { listFarms } from '../services/farms';
 import { createLot, listLots, setLotStatus, updateLot } from '../services/lots';
-import type { Lot } from '../types';
+import type { Lot, Status } from '../types';
 
 export default function LotsPage() {
   const farms = useAsyncData(() => listFarms('ACTIVE'), []);
@@ -21,6 +23,7 @@ export default function LotsPage() {
       error={error}
       onReload={reload}
       canWrite
+      extraHeader={<MasterImportButton entity="lots" onDone={reload} />}
       getId={(r) => r.id}
       getStatus={(r) => r.status}
       columns={[
@@ -34,6 +37,7 @@ export default function LotsPage() {
         { name: 'nombreLote', label: 'Nombre del lote', required: true },
         { name: 'variedad', label: 'Variedad', required: true },
         { name: 'numeroPlantas', label: 'Número de plantas (opcional)', type: 'number' },
+        STATUS_CREATE_FIELD,
       ]}
       toForm={(r) => ({
         farmId: r.farmId,
@@ -50,6 +54,7 @@ export default function LotsPage() {
             v.numeroPlantas !== undefined && !Number.isNaN(Number(v.numeroPlantas))
               ? Number(v.numeroPlantas)
               : undefined,
+          status: v.status ? (v.status as Status) : undefined,
         });
       }}
       onUpdate={async (id, v) => {

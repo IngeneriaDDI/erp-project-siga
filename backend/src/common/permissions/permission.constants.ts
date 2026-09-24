@@ -8,6 +8,8 @@ export const PERMISSIONS = {
   HARVEST_RECORDS_VIEW: 'harvest.records.view',
   HARVEST_RECORDS_CREATE: 'harvest.records.create',
   HARVEST_RECORDS_UPDATE: 'harvest.records.update',
+  HARVEST_RECORDS_IMPORT: 'harvest.records.import',
+  HARVEST_RECORDS_REVERT: 'harvest.records.revert',
 
   HARVEST_REMISSIONS_VIEW: 'harvest.remissions.view',
   HARVEST_REMISSIONS_CREATE: 'harvest.remissions.create',
@@ -57,6 +59,8 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
     P.HARVEST_RECORDS_VIEW,
     P.HARVEST_RECORDS_CREATE,
     P.HARVEST_RECORDS_UPDATE,
+    P.HARVEST_RECORDS_IMPORT,
+    P.HARVEST_RECORDS_REVERT,
     P.HARVEST_REMISSIONS_VIEW,
     P.HARVEST_REMISSIONS_CREATE,
     P.HARVEST_PRODUCTION_ORDERS_VIEW,

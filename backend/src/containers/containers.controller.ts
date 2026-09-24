@@ -12,6 +12,7 @@ import { ContainersService } from './containers.service';
 import {
   CreateContainerDto,
   QueryContainerDto,
+  SetDefaultContainerDto,
   UpdateContainerDto,
 } from './dto/container.dto';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -56,5 +57,16 @@ export class ContainersController {
     @Body() dto: UpdateStatusDto,
   ) {
     return this.service.setStatus(tenantId, id, dto.status);
+  }
+
+  // Marca/desmarca el recipiente por defecto de la empresa (admin del tenant).
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN_TENANT)
+  @Patch(':id/default')
+  setDefault(
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+    @Body() dto: SetDefaultContainerDto,
+  ) {
+    return this.service.setDefault(tenantId, id, dto.isDefault);
   }
 }

@@ -36,6 +36,21 @@ export class FieldConfigService {
     });
   }
 
+  /**
+   * Ajustes de cosecha a nivel EMPRESA (no por campo). Lo consume el formulario
+   * de cosecha para cualquier usuario del tenant (resuelto por @TenantId).
+   */
+  async getTenantHarvestSettings(
+    tenantId: string | null,
+  ): Promise<{ workersFilteredByFarm: boolean }> {
+    const tid = requireTenant(tenantId);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { workersFilteredByFarm: true },
+    });
+    return { workersFilteredByFarm: tenant?.workersFilteredByFarm ?? true };
+  }
+
   /** Igual que getHarvestConfig pero como Map, para el módulo de cosecha. */
   async getHarvestConfigMap(
     tenantId: string | null,

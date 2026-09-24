@@ -22,6 +22,8 @@ import { HarvestRemissionsModule } from './harvest-remissions/harvest-remissions
 import { ProductionOrdersModule } from './production-orders/production-orders.module';
 import { OperationalModule } from './operational/operational.module';
 import { PermissionsCatalogModule } from './permissions/permissions.module';
+import { HarvestImportModule } from './harvest-import/harvest-import.module';
+import { MastersImportModule } from './masters-import/masters-import.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { PermissionsCatalogModule } from './permissions/permissions.module';
     ProductionOrdersModule,
     OperationalModule,
     PermissionsCatalogModule,
+    HarvestImportModule,
+    MastersImportModule,
   ],
   providers: [
     // Orden importante: autentica (JWT) → valida rol → valida permisos granulares.

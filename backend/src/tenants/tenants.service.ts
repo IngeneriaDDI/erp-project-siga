@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Status } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenant.dto';
@@ -26,6 +26,15 @@ export class TenantsService {
 
   async update(id: string, dto: UpdateTenantDto) {
     await this.findOne(id);
+    // Si se define una canastilla por defecto, debe existir y ser de esta empresa.
+    if (dto.defaultContainerId) {
+      const container = await this.prisma.container.findFirst({
+        where: { id: dto.defaultContainerId, tenantId: id },
+      });
+      if (!container) {
+        throw new BadRequestException('La canastilla por defecto no pertenece a esta empresa');
+      }
+    }
     return this.prisma.tenant.update({ where: { id }, data: dto });
   }
 

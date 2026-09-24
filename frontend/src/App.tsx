@@ -16,6 +16,7 @@ import FieldConfigPage from './pages/FieldConfigPage';
 import HarvestListPage from './pages/HarvestListPage';
 import HarvestFormPage from './pages/HarvestFormPage';
 import HarvestDetailPage from './pages/HarvestDetailPage';
+import HarvestImportPage from './pages/HarvestImportPage';
 import RemissionsPage from './pages/RemissionsPage';
 import RemissionDetailPage from './pages/RemissionDetailPage';
 import ProductionOrdersPage from './pages/ProductionOrdersPage';
@@ -64,6 +65,14 @@ export default function App() {
             element={
               <PermissionGuard allOf={[PERMS.HARVEST_RECORDS_CREATE]}>
                 <HarvestFormPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="/harvest/import"
+            element={
+              <PermissionGuard allOf={[PERMS.HARVEST_RECORDS_IMPORT]}>
+                <HarvestImportPage />
               </PermissionGuard>
             }
           />

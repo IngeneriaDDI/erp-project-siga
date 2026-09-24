@@ -1,4 +1,5 @@
 import { CrudPage } from '../components/CrudPage';
+import { MasterImportButton } from '../components/MasterImportButton';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { listFarms } from '../services/farms';
 import {
@@ -7,7 +8,19 @@ import {
   setWorkerStatus,
   updateWorker,
 } from '../services/workers';
-import type { Worker } from '../types';
+import type { Status, Worker } from '../types';
+
+// Selector de estado (solo al crear): permite cargar maestros históricos como INACTIVE.
+export const STATUS_CREATE_FIELD = {
+  name: 'status',
+  label: 'Estado',
+  type: 'select' as const,
+  hideOnEdit: true,
+  options: [
+    { value: 'ACTIVE', label: 'Activo' },
+    { value: 'INACTIVE', label: 'Inactivo (histórico)' },
+  ],
+};
 
 export default function WorkersPage() {
   const farms = useAsyncData(() => listFarms('ACTIVE'), []);
@@ -20,12 +33,13 @@ export default function WorkersPage() {
     <CrudPage<Worker>
       title="Trabajadores"
       singular="Trabajador"
-      description="Trabajadores de la finca. El código es único por finca."
+      description="Trabajadores de la empresa. El código interno es único por empresa."
       rows={data ?? []}
       loading={loading}
       error={error}
       onReload={reload}
       canWrite
+      extraHeader={<MasterImportButton entity="workers" onDone={reload} />}
       getId={(r) => r.id}
       getStatus={(r) => r.status}
       columns={[
@@ -40,6 +54,7 @@ export default function WorkersPage() {
         { name: 'nombre', label: 'Nombre', required: true },
         { name: 'documento', label: 'Documento (opcional)' },
         { name: 'areaTrabajo', label: 'Área de trabajo (opcional)' },
+        STATUS_CREATE_FIELD,
       ]}
       toForm={(r) => ({
         farmId: r.farmId,
@@ -55,6 +70,7 @@ export default function WorkersPage() {
           nombre: String(v.nombre),
           documento: v.documento ? String(v.documento) : undefined,
           areaTrabajo: v.areaTrabajo ? String(v.areaTrabajo) : undefined,
+          status: v.status ? (v.status as Status) : undefined,
         });
       }}
       onUpdate={async (id, v) => {

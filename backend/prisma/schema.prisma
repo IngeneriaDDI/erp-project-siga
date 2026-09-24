@@ -53,6 +53,22 @@ enum OperationalContext {
   POSTHARVEST_AUTHORIZATION
 }
 
+// Origen de un lote de importación de registros de cosecha.
+enum ImportSource {
+  UI
+  SCRIPT
+}
+
+// Estado del ciclo de vida de un lote de importación.
+enum ImportStatus {
+  VALIDATING
+  VALIDATED
+  PROCESSING
+  COMPLETED
+  FAILED
+  REVERTED
+}
+
 // -------------------------------------------------------------------------
 // Tenant / Cliente
 // -------------------------------------------------------------------------
@@ -65,6 +81,13 @@ model Tenant {
   weightUnit WeightUnit @default(GRAMS) @map("weight_unit")
   // Estrategia de identidad operativa (default NAMED_USERS = comportamiento actual).
   identityStrategy IdentityStrategy @default(NAMED_USERS) @map("identity_strategy")
+  // Canastilla/recipiente por defecto que se prellena en el registro de cosecha.
+  // Referencia escalar (FK en SQL) para no forzar relación inversa en Container.
+  defaultContainerId String? @map("default_container_id")
+  // Si true (default = comportamiento actual), el selector de trabajadores se
+  // filtra por la finca de la operación. Si false, se permite cualquier
+  // trabajador del tenant (empresas que comparten personal entre fincas).
+  workersFilteredByFarm Boolean @default(true) @map("workers_filtered_by_farm")
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
@@ -76,6 +99,7 @@ model Tenant {
   qualities      Quality[]
   harvestRecords HarvestRecord[]
   fieldConfigs   TenantModuleFieldConfig[]
+  importBatches  ImportBatch[]
 
   @@map("tenants")
 }
@@ -122,6 +146,7 @@ model User {
   createdHarvest HarvestRecord[]  @relation("HarvestCreatedBy")
   updatedHarvest HarvestRecord[]  @relation("HarvestUpdatedBy")
   permissions    UserPermission[]
+  importBatches  ImportBatch[]    @relation("ImportBatchCreatedBy")
 
   @@index([tenantId])
   @@map("users")
@@ -146,7 +171,9 @@ model Worker {
   farm           Farm            @relation(fields: [farmId], references: [id])
   harvestRecords HarvestRecord[]
 
-  @@unique([tenantId, farmId, codigoInterno])
+  // Código interno único por EMPRESA (no por finca): un mismo código no puede
+  // repetirse en el tenant aunque el trabajador cambie o comparta finca.
+  @@unique([tenantId, codigoInterno])
   @@index([tenantId])
   @@index([farmId])
   @@map("workers")
@@ -185,6 +212,9 @@ model Container {
   nombre     String
   pesoGramos Int      @map("peso_gramos")
   status     Status   @default(ACTIVE)
+  // Recipiente por defecto de la empresa (se prellena en el registro de cosecha).
+  // Como máximo uno activo por tenant (se controla en el servicio, transaccional).
+  isDefault  Boolean  @default(false) @map("is_default")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -241,24 +271,59 @@ model HarvestRecord {
   createdByWorkerId          String?       @map("created_by_worker_id")
   createdByActorName         String?       @map("created_by_actor_name")
   updatedBy                  String?       @map("updated_by")
+  // Carga masiva: lote de importación y clave natural para idempotencia/duplicados.
+  importBatchId              String?       @map("import_batch_id")
+  rowHash                    String?       @map("row_hash")
   createdAt                  DateTime      @default(now()) @map("created_at")
   updatedAt                  DateTime      @updatedAt @map("updated_at")
 
-  tenant     Tenant                   @relation(fields: [tenantId], references: [id])
-  farm       Farm                     @relation(fields: [farmId], references: [id])
-  worker     Worker                   @relation(fields: [workerId], references: [id])
-  quality    Quality                  @relation(fields: [qualityId], references: [id])
-  lot        Lot                      @relation(fields: [lotId], references: [id])
-  creator    User                     @relation("HarvestCreatedBy", fields: [createdBy], references: [id])
-  updater    User?                    @relation("HarvestUpdatedBy", fields: [updatedBy], references: [id])
-  containers HarvestRecordContainer[]
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id])
+  farm        Farm                     @relation(fields: [farmId], references: [id])
+  worker      Worker                   @relation(fields: [workerId], references: [id])
+  quality     Quality                  @relation(fields: [qualityId], references: [id])
+  lot         Lot                      @relation(fields: [lotId], references: [id])
+  creator     User                     @relation("HarvestCreatedBy", fields: [createdBy], references: [id])
+  updater     User?                    @relation("HarvestUpdatedBy", fields: [updatedBy], references: [id])
+  importBatch ImportBatch?             @relation(fields: [importBatchId], references: [id])
+  containers  HarvestRecordContainer[]
 
   @@index([tenantId])
   @@index([tenantId, fecha])
   @@index([tenantId, farmId])
+  @@index([tenantId, fecha, farmId, qualityId])
   @@index([workerId])
   @@index([lotId])
+  @@index([importBatchId])
   @@map("harvest_records")
+}
+
+// -------------------------------------------------------------------------
+// ImportBatch / Lote de importación de registros de cosecha (trazabilidad)
+// -------------------------------------------------------------------------
+model ImportBatch {
+  id           String       @id @default(uuid())
+  tenantId     String       @map("tenant_id")
+  createdBy    String       @map("created_by")
+  source       ImportSource
+  fileName     String?      @map("file_name")
+  status       ImportStatus @default(VALIDATED)
+  totalRows    Int          @default(0) @map("total_rows")
+  insertedRows Int          @default(0) @map("inserted_rows")
+  rejectedRows Int          @default(0) @map("rejected_rows")
+  allowInactive Boolean     @default(false) @map("allow_inactive")
+  errorSummary Json?        @map("error_summary")
+  startedAt    DateTime?    @map("started_at")
+  finishedAt   DateTime?    @map("finished_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  creator User            @relation("ImportBatchCreatedBy", fields: [createdBy], references: [id])
+  records HarvestRecord[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("import_batches")
 }
 
 // -------------------------------------------------------------------------

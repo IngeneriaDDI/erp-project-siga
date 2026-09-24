@@ -33,6 +33,7 @@ export interface AuthUser {
     status: Status;
     weightUnit?: WeightUnit;
     identityStrategy?: IdentityStrategy;
+    workersFilteredByFarm?: boolean;
   } | null;
 }
 
@@ -43,6 +44,8 @@ export interface Tenant {
   status: Status;
   weightUnit: WeightUnit;
   identityStrategy: IdentityStrategy;
+  defaultContainerId?: string | null;
+  workersFilteredByFarm: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -133,6 +136,8 @@ export interface Container {
   nombre: string;
   pesoGramos: number;
   status: Status;
+  // Recipiente por defecto de la empresa (se prellena en el registro de cosecha).
+  isDefault: boolean;
 }
 
 export interface Quality {

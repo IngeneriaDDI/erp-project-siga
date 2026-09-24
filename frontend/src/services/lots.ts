@@ -9,6 +9,7 @@ export const createLot = (body: {
   nombreLote: string;
   variedad: string;
   numeroPlantas?: number;
+  status?: Status;
 }) => api.post<Lot>('/lots', body).then((r) => r.data);
 
 export const updateLot = (

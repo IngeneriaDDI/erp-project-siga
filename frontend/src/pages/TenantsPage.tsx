@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { CrudPage } from '../components/CrudPage';
+import { Toggle } from '../components/ui/Toggle';
 import { useAsyncData } from '../hooks/useAsyncData';
 import {
   createTenant,
@@ -7,6 +9,21 @@ import {
   updateTenant,
 } from '../services/tenants';
 import type { Tenant } from '../types';
+
+// Toggle a nivel empresa: filtrar el selector de trabajadores por finca.
+function WorkersFilterToggle({ tenant, onChanged }: { tenant: Tenant; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const change = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await updateTenant(tenant.id, { workersFilteredByFarm: v });
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <Toggle checked={tenant.workersFilteredByFarm} onChange={change} disabled={busy} />;
+}
 
 // Nota: internamente el modelo se sigue llamando "tenant"; visualmente es "Empresa".
 export default function TenantsPage() {
@@ -27,6 +44,10 @@ export default function TenantsPage() {
       columns={[
         { header: 'Nombre', render: (r) => r.nombre },
         { header: 'NIT', render: (r) => r.nit ?? '—' },
+        {
+          header: 'Filtra trabajadores por finca',
+          render: (r) => <WorkersFilterToggle tenant={r} onChanged={reload} />,
+        },
       ]}
       fields={[
         { name: 'nombre', label: 'Nombre de la empresa', required: true },

@@ -27,6 +27,11 @@ export class CreateQualityDto {
   @IsBoolean()
   @Transform(toBoolean)
   visibleEnCosecha?: boolean;
+
+  // Permite crear calidades históricas directamente como INACTIVE.
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }
 
 export class UpdateQualityDto {

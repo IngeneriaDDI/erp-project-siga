@@ -6,6 +6,8 @@ export const PERMS = {
   HARVEST_RECORDS_VIEW: 'harvest.records.view',
   HARVEST_RECORDS_CREATE: 'harvest.records.create',
   HARVEST_RECORDS_UPDATE: 'harvest.records.update',
+  HARVEST_RECORDS_IMPORT: 'harvest.records.import',
+  HARVEST_RECORDS_REVERT: 'harvest.records.revert',
 
   HARVEST_REMISSIONS_VIEW: 'harvest.remissions.view',
   HARVEST_REMISSIONS_CREATE: 'harvest.remissions.create',

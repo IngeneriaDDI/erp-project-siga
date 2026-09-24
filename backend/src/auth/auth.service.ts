@@ -79,6 +79,7 @@ export class AuthService {
             status: true,
             weightUnit: true,
             identityStrategy: true,
+            workersFilteredByFarm: true,
           },
         },
       },

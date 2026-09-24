@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Status } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { requireTenant } from '../common/tenant/tenant.util';
@@ -36,5 +36,29 @@ export class ContainersService {
   async setStatus(tenantId: string | null, id: string, status: Status) {
     await this.findOne(tenantId, id);
     return this.prisma.container.update({ where: { id }, data: { status } });
+  }
+
+  /**
+   * Marca (o desmarca) un recipiente como el predeterminado de la empresa.
+   * Activación única: al activar uno, desactiva cualquier otro predeterminado.
+   */
+  async setDefault(tenantId: string | null, id: string, isDefault: boolean) {
+    const tid = requireTenant(tenantId);
+    const container = await this.findOne(tenantId, id);
+    if (isDefault) {
+      if (container.status !== 'ACTIVE') {
+        throw new BadRequestException('Solo un recipiente activo puede ser el predeterminado');
+      }
+      await this.prisma.$transaction([
+        this.prisma.container.updateMany({
+          where: { tenantId: tid, isDefault: true, id: { not: id } },
+          data: { isDefault: false },
+        }),
+        this.prisma.container.update({ where: { id }, data: { isDefault: true } }),
+      ]);
+    } else {
+      await this.prisma.container.update({ where: { id }, data: { isDefault: false } });
+    }
+    return this.findOne(tenantId, id);
   }
 }

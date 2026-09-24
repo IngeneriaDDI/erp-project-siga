@@ -1,7 +1,7 @@
-import { UseFormRegister } from 'react-hook-form';
+import { Control, Controller, FieldValues, Path, UseFormRegister } from 'react-hook-form';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
+import { SearchableSelect } from '../ui/SearchableSelect';
 import { formatWeight, type WeightUnit } from '../../lib/weight';
 import type { Container } from '../../types';
 
@@ -10,10 +10,10 @@ interface RowValue {
   unidades?: number;
 }
 
-interface Props {
+interface Props<T extends FieldValues> {
   fields: { id: string }[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  register: UseFormRegister<any>;
+  register: UseFormRegister<T>;
+  control: Control<T>;
   remove: (index: number) => void;
   append: () => void;
   containers: Container[];
@@ -21,8 +21,22 @@ interface Props {
   unit: WeightUnit; // unidad de presentación de la empresa
 }
 
-export function DynamicContainerRows({ fields, register, remove, append, containers, rows, unit }: Props) {
+export function DynamicContainerRows<T extends FieldValues>({
+  fields,
+  register,
+  control,
+  remove,
+  append,
+  containers,
+  rows,
+  unit,
+}: Props<T>) {
   const pesoUnitGramos = (cid?: string) => containers.find((c) => c.id === cid)?.pesoGramos ?? 0;
+  const options = containers.map((c) => ({
+    value: c.id,
+    label: `${c.nombre} (${formatWeight(c.pesoGramos, unit)})`,
+    keywords: c.nombre,
+  }));
 
   return (
     <div className="space-y-2">
@@ -37,24 +51,25 @@ export function DynamicContainerRows({ fields, register, remove, append, contain
             className="grid grid-cols-12 items-end gap-2 rounded-md border border-gray-200 bg-gray-50 p-2"
           >
             <div className="col-span-12 sm:col-span-5">
-              <Select
-                label={i === 0 ? 'Recipiente' : undefined}
-                {...register(`containers.${i}.containerId`)}
-              >
-                <option value="">— Selecciona —</option>
-                {containers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre} ({formatWeight(c.pesoGramos, unit)})
-                  </option>
-                ))}
-              </Select>
+              <Controller
+                name={`containers.${i}.containerId` as Path<T>}
+                control={control}
+                render={({ field: f }) => (
+                  <SearchableSelect
+                    label={i === 0 ? 'Recipiente' : undefined}
+                    value={(f.value as string | undefined) ?? ''}
+                    onChange={(v) => f.onChange(v)}
+                    options={options}
+                  />
+                )}
+              />
             </div>
             <div className="col-span-4 sm:col-span-2">
               <Input
                 label={i === 0 ? 'Unidades' : undefined}
                 type="number"
                 min={1}
-                {...register(`containers.${i}.unidades`, { valueAsNumber: true })}
+                {...register(`containers.${i}.unidades` as Path<T>, { valueAsNumber: true })}
               />
             </div>
             <div className="col-span-4 sm:col-span-2 text-sm">

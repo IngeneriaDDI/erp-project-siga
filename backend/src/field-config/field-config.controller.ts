@@ -15,6 +15,12 @@ export class FieldConfigController {
     return this.service.getHarvestConfig(tenantId);
   }
 
+  // Ajustes a nivel empresa (p. ej. filtrar trabajadores por finca). Cualquier usuario.
+  @Get('harvest-settings')
+  getHarvestSettings(@TenantId() tenantId: string | null) {
+    return this.service.getTenantHarvestSettings(tenantId);
+  }
+
   // Escritura: solo el administrador global (SUPER_ADMIN).
   @Roles(Role.SUPER_ADMIN)
   @Patch('harvest')

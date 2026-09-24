@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { IdentityStrategy, Status, WeightUnit } from '@prisma/client';
 
 export class CreateTenantDto {
@@ -43,6 +43,16 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsEnum(IdentityStrategy)
   identityStrategy?: IdentityStrategy;
+
+  // Canastilla por defecto para el registro de cosecha (null la desactiva).
+  @IsOptional()
+  @IsString()
+  defaultContainerId?: string | null;
+
+  // Si false, el selector de trabajadores no se filtra por finca.
+  @IsOptional()
+  @IsBoolean()
+  workersFilteredByFarm?: boolean;
 }
 
 export class QueryTenantDto {

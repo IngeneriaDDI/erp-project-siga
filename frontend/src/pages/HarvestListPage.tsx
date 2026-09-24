@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Ban, Eye, Pencil, Plus } from 'lucide-react';
+import { Ban, Eye, Pencil, Plus, Upload } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { listFarms } from '../services/farms';
@@ -10,6 +10,7 @@ import { listQualities } from '../services/qualities';
 import { cancelHarvest, listHarvest, type HarvestFilters } from '../services/harvest';
 import { Button, IconButton } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Input } from '../components/ui/Input';
 import { Table } from '../components/ui/Table';
 import { Alert, Badge, Spinner } from '../components/ui/misc';
@@ -23,6 +24,7 @@ export default function HarvestListPage() {
   const navigate = useNavigate();
   const canCreate = hasPermission(PERMS.HARVEST_RECORDS_CREATE);
   const canEdit = hasPermission(PERMS.HARVEST_RECORDS_UPDATE);
+  const canImport = hasPermission(PERMS.HARVEST_RECORDS_IMPORT);
 
   const [filters, setFilters] = useState<HarvestFilters>({ page: 1, pageSize: 20 });
   const farms = useAsyncData(() => listFarms('ACTIVE'), []);
@@ -63,49 +65,62 @@ export default function HarvestListPage() {
           <h1 className="text-xl font-bold text-content">Registros de cosecha</h1>
           <p className="text-sm text-muted">{total} registro(s)</p>
         </div>
-        {canCreate && (
-          <Link to="/harvest/new">
-            <Button leftIcon={<Plus size={16} />}>Registrar cosecha</Button>
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canImport && (
+            <Link to="/harvest/import">
+              <Button variant="secondary" leftIcon={<Upload size={16} />}>
+                Importar / Exportar
+              </Button>
+            </Link>
+          )}
+          {canCreate && (
+            <Link to="/harvest/new">
+              <Button leftIcon={<Plus size={16} />}>Registrar cosecha</Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Filtros */}
       <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 shadow-card sm:grid-cols-3 lg:grid-cols-4">
         <Input label="Desde" type="date" onChange={(e) => setFilter({ fechaDesde: e.target.value || undefined })} />
         <Input label="Hasta" type="date" onChange={(e) => setFilter({ fechaHasta: e.target.value || undefined })} />
-        <Select label="Finca" onChange={(e) => setFilter({ farmId: e.target.value || undefined })}>
-          <option value="">Todas</option>
-          {(farms.data ?? []).map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.nombre}
-            </option>
-          ))}
-        </Select>
-        <Select label="Trabajador" onChange={(e) => setFilter({ workerId: e.target.value || undefined })}>
-          <option value="">Todos</option>
-          {(workers.data ?? []).map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.codigoInterno} · {w.nombre}
-            </option>
-          ))}
-        </Select>
-        <Select label="Lote" onChange={(e) => setFilter({ lotId: e.target.value || undefined })}>
-          <option value="">Todos</option>
-          {(lots.data ?? []).map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.nombreLote}
-            </option>
-          ))}
-        </Select>
-        <Select label="Calidad" onChange={(e) => setFilter({ qualityId: e.target.value || undefined })}>
-          <option value="">Todas</option>
-          {(qualities.data ?? []).map((q) => (
-            <option key={q.id} value={q.id}>
-              {q.nombre}
-            </option>
-          ))}
-        </Select>
+        <SearchableSelect
+          label="Finca"
+          value={filters.farmId ?? ''}
+          onChange={(v) => setFilter({ farmId: v || undefined })}
+          clearLabel="Todas"
+          options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
+        />
+        <SearchableSelect
+          label="Trabajador"
+          value={filters.workerId ?? ''}
+          onChange={(v) => setFilter({ workerId: v || undefined })}
+          clearLabel="Todos"
+          options={(workers.data ?? []).map((w) => ({
+            value: w.id,
+            label: `${w.codigoInterno} · ${w.nombre}`,
+            keywords: `${w.codigoInterno} ${w.nombre} ${w.documento ?? ''}`,
+          }))}
+        />
+        <SearchableSelect
+          label="Lote"
+          value={filters.lotId ?? ''}
+          onChange={(v) => setFilter({ lotId: v || undefined })}
+          clearLabel="Todos"
+          options={(lots.data ?? []).map((l) => ({
+            value: l.id,
+            label: l.nombreLote,
+            keywords: `${l.nombreLote} ${l.variedad}`,
+          }))}
+        />
+        <SearchableSelect
+          label="Calidad"
+          value={filters.qualityId ?? ''}
+          onChange={(v) => setFilter({ qualityId: v || undefined })}
+          clearLabel="Todas"
+          options={(qualities.data ?? []).map((q) => ({ value: q.id, label: q.nombre }))}
+        />
         <Select
           label="Estado"
           onChange={(e) => setFilter({ status: (e.target.value || undefined) as HarvestFilters['status'] })}

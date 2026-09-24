@@ -6,6 +6,7 @@ import { AuthUser } from '../common/types/auth.types';
 import { requireTenant } from '../common/tenant/tenant.util';
 import { HarvestConfigurableField } from '../common/constants/harvest-fields';
 import { OperationalIdentityService } from '../operational/operational-identity.service';
+import { isWorkerAllowedForFarm } from '../workers/workers-farm-filter.util';
 import { calcularCosecha } from './harvest.calc';
 import { QueryHarvestDto, SaveHarvestRecordDto } from './dto/harvest.dto';
 
@@ -160,12 +161,18 @@ export class HarvestService {
       throw new BadRequestException('Finca inválida o inactiva');
     }
 
-    // Cosechador
+    // Cosechador (validación autoritativa en backend, no solo en el frontend).
     const worker = await this.prisma.worker.findFirst({ where: { id: dto.workerId, tenantId: tid } });
     if (!worker || worker.status !== 'ACTIVE') {
       throw new BadRequestException('Cosechador inválido o inactivo');
     }
-    if (worker.farmId !== dto.farmId) {
+    // El filtro por finca es configurable por empresa (default = filtrado).
+    const tenantCfg = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { workersFilteredByFarm: true },
+    });
+    const filteredByFarm = tenantCfg?.workersFilteredByFarm ?? true;
+    if (!isWorkerAllowedForFarm(filteredByFarm, worker.farmId, dto.farmId)) {
       throw new BadRequestException('El cosechador no pertenece a la finca indicada');
     }
 

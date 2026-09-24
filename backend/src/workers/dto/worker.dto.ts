@@ -31,6 +31,11 @@ export class CreateWorkerDto {
   @IsString()
   @MaxLength(100)
   areaTrabajo?: string;
+
+  // Permite crear trabajadores históricos directamente como INACTIVE.
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }
 
 export class UpdateWorkerDto {

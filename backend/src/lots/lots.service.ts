@@ -35,6 +35,7 @@ export class LotsService {
         nombreLote: dto.nombreLote,
         variedad: dto.variedad,
         numeroPlantas: dto.numeroPlantas,
+        status: dto.status,
       },
     });
   }

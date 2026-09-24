@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -9,6 +10,11 @@ import {
 } from 'class-validator';
 import { Status } from '@prisma/client';
 
+export class SetDefaultContainerDto {
+  @IsBoolean()
+  isDefault!: boolean;
+}
+
 export class CreateContainerDto {
   @IsString()
   @MinLength(1)
@@ -18,6 +24,11 @@ export class CreateContainerDto {
   @IsInt({ message: 'peso_gramos debe ser un entero' })
   @Min(0, { message: 'peso_gramos no puede ser negativo' })
   pesoGramos!: number;
+
+  // Permite crear canastillas históricas directamente como INACTIVE.
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }
 
 export class UpdateContainerDto {

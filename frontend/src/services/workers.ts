@@ -10,6 +10,7 @@ export const createWorker = (body: {
   nombre: string;
   documento?: string;
   areaTrabajo?: string;
+  status?: Status;
 }) => api.post<Worker>('/workers', body).then((r) => r.data);
 
 export const updateWorker = (

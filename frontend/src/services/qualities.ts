@@ -8,6 +8,7 @@ export const createQuality = (body: {
   nombre: string;
   descripcion?: string;
   visibleEnCosecha?: boolean;
+  status?: Status;
 }) => api.post<Quality>('/qualities', body).then((r) => r.data);
 
 export const updateQuality = (

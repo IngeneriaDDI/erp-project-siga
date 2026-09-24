@@ -9,7 +9,7 @@ import {
 } from '../services/operational';
 import { listWorkers } from '../services/workers';
 import { Button } from '../components/ui/Button';
-import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Alert, Badge, Spinner } from '../components/ui/misc';
 import { getApiErrorMessage } from '../lib/api';
 import type { ActiveAssignment, AssignmentHistoryRow, OperationalContext, Worker } from '../types';
@@ -113,19 +113,18 @@ function ContextCard({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex-1">
-          <Select
+          <SearchableSelect
             label="Asignar trabajador"
             value={selected}
             disabled={busy}
-            onChange={(e) => setSelected(e.target.value)}
-          >
-            <option value="">— Selecciona un trabajador —</option>
-            {workers.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.nombre} ({w.codigoInterno})
-              </option>
-            ))}
-          </Select>
+            onChange={setSelected}
+            placeholder="— Selecciona un trabajador —"
+            options={workers.map((w) => ({
+              value: w.id,
+              label: `${w.nombre} (${w.codigoInterno})`,
+              keywords: `${w.codigoInterno} ${w.nombre} ${w.documento ?? ''}`,
+            }))}
+          />
         </div>
         <div className="flex gap-2">
           <Button onClick={assign} disabled={busy || !selected} leftIcon={<UserCheck size={16} />}>

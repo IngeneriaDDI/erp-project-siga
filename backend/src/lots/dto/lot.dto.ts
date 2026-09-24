@@ -28,6 +28,11 @@ export class CreateLotDto {
   @IsInt()
   @Min(0)
   numeroPlantas?: number;
+
+  // Permite crear lotes históricos directamente como INACTIVE.
+  @IsOptional()
+  @IsEnum(Status)
+  status?: Status;
 }
 
 export class UpdateLotDto {

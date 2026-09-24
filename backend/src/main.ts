@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -10,6 +11,10 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   app.use(cookieParser());
+  // Cuerpos grandes para la importación de cosecha por CSV (texto en el body).
+  const bodyLimit = config.get<string>('BODY_LIMIT', '25mb');
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
   // Acepta uno o varios orígenes separados por coma (p. ej. 8080 en Docker, 5173 en dev).
   const corsOrigins = config

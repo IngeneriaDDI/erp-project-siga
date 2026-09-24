@@ -55,10 +55,21 @@ export class AuthController {
   }
 
   private cookieOptions(): CookieOptions {
+    // En local (mismo "site": localhost:8080 ↔ localhost:3000) basta con "lax".
+    // En producción, frontend (Cloudflare) y backend (Railway) son dominios
+    // distintos, por lo que la cookie necesita SameSite=None + Secure=true
+    // para que el navegador la envíe en las peticiones cross-site del SPA.
+    const sameSite = this.config.get<string>('COOKIE_SAME_SITE', 'lax') as
+      | 'lax'
+      | 'strict'
+      | 'none';
+    const secure =
+      sameSite === 'none' ||
+      this.config.get<string>('COOKIE_SECURE', 'false') === 'true';
     return {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: this.config.get<string>('COOKIE_SECURE', 'false') === 'true',
+      sameSite,
+      secure,
       path: '/',
       maxAge: REFRESH_MAX_AGE_MS,
     };

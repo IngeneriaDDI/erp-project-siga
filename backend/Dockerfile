@@ -24,5 +24,7 @@ RUN npm run build
 
 EXPOSE 3000
 
-# El comando real (migrate + seed + start) lo define docker-compose.
-CMD ["node", "dist/main.js"]
+# Por defecto: aplica migraciones pendientes y arranca (SIN seed, para no
+# sembrar datos demo en producción). docker-compose sobreescribe este
+# comando en local para además correr el seed (idempotente).
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

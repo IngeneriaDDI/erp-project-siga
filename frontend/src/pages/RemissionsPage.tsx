@@ -17,6 +17,7 @@ import { PERMS } from '../lib/permissions';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Table } from '../components/ui/Table';
 import { Modal } from '../components/ui/Modal';
 import { OperatorStatusBanner } from '../components/OperatorStatusBanner';
@@ -108,26 +109,28 @@ export default function RemissionsPage() {
         <OperatorStatusBanner onBlockedChange={setOpBlocked} />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Input label="Fecha de cosecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <Select
+          <SearchableSelect
             label="Finca"
             value={farmId}
-            onChange={(e) => {
-              setFarmId(e.target.value);
+            onChange={(v) => {
+              setFarmId(v);
               setLotId('');
               setPreview(null);
             }}
-          >
-            <option value="">— Selecciona —</option>
-            {(farms.data ?? []).map((f) => (
-              <option key={f.id} value={f.id}>{f.nombre}</option>
-            ))}
-          </Select>
-          <Select label="Lote" value={lotId} onChange={(e) => setLotId(e.target.value)} disabled={!farmId}>
-            <option value="">— Selecciona —</option>
-            {farmLots.map((l) => (
-              <option key={l.id} value={l.id}>{l.nombreLote}</option>
-            ))}
-          </Select>
+            options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
+          />
+          <SearchableSelect
+            label="Lote"
+            value={lotId}
+            onChange={(v) => setLotId(v)}
+            disabled={!farmId}
+            placeholder={farmId ? '— Selecciona —' : 'Elige una finca primero'}
+            options={farmLots.map((l) => ({
+              value: l.id,
+              label: l.nombreLote,
+              keywords: `${l.nombreLote} ${l.variedad}`,
+            }))}
+          />
           <div className="flex items-end">
             <Button leftIcon={<Search size={16} />} onClick={doPreview} disabled={previewLoading || !lotId} className="w-full">
               {previewLoading ? 'Consultando…' : 'Vista previa'}
@@ -189,12 +192,13 @@ export default function RemissionsPage() {
         <div className="grid gap-3 rounded-xl border border-border bg-surface p-3 shadow-card sm:grid-cols-2 lg:grid-cols-4">
           <Input label="Desde" type="date" onChange={(e) => setFilter({ fechaDesde: e.target.value || undefined })} />
           <Input label="Hasta" type="date" onChange={(e) => setFilter({ fechaHasta: e.target.value || undefined })} />
-          <Select label="Finca" onChange={(e) => setFilter({ farmId: e.target.value || undefined })}>
-            <option value="">Todas</option>
-            {(farms.data ?? []).map((f) => (
-              <option key={f.id} value={f.id}>{f.nombre}</option>
-            ))}
-          </Select>
+          <SearchableSelect
+            label="Finca"
+            value={filters.farmId ?? ''}
+            onChange={(v) => setFilter({ farmId: v || undefined })}
+            clearLabel="Todas"
+            options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
+          />
           <Select label="Estado" onChange={(e) => setFilter({ status: (e.target.value || undefined) as RemissionStatus })}>
             <option value="">Todos</option>
             <option value="PENDIENTE_RECEPCION">Pendiente recepción</option>

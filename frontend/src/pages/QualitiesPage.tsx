@@ -1,4 +1,5 @@
 import { CrudPage } from '../components/CrudPage';
+import { STATUS_CREATE_FIELD } from './WorkersPage';
 import { Badge } from '../components/ui/misc';
 import { useAsyncData } from '../hooks/useAsyncData';
 import {
@@ -7,7 +8,7 @@ import {
   setQualityStatus,
   updateQuality,
 } from '../services/qualities';
-import type { Quality } from '../types';
+import type { Quality, Status } from '../types';
 
 export default function QualitiesPage() {
   const { data, loading, error, reload } = useAsyncData(() => listQualities(), []);
@@ -37,6 +38,7 @@ export default function QualitiesPage() {
         { name: 'nombre', label: 'Nombre', required: true },
         { name: 'descripcion', label: 'Descripción (opcional)' },
         { name: 'visibleEnCosecha', label: 'Visible en cosecha', type: 'checkbox' },
+        STATUS_CREATE_FIELD,
       ]}
       toForm={(r) => ({
         nombre: r.nombre,
@@ -48,6 +50,7 @@ export default function QualitiesPage() {
           nombre: String(v.nombre),
           descripcion: v.descripcion ? String(v.descripcion) : undefined,
           visibleEnCosecha: Boolean(v.visibleEnCosecha),
+          status: v.status ? (v.status as Status) : undefined,
         });
       }}
       onUpdate={async (id, v) => {
