@@ -20,7 +20,10 @@ RUN npx prisma generate
 
 # Copia el código y compila.
 COPY . .
-RUN npm run build
+RUN npm run build \
+  && echo "--- Contenido de dist/ tras el build ---" \
+  && find dist -maxdepth 3 \
+  && test -f dist/main.js || (echo "ERROR: no se generó dist/main.js" && exit 1)
 
 EXPOSE 3000
 
