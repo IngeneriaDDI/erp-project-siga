@@ -30,6 +30,16 @@ async function main() {
     },
   });
 
+  // En producción (datos reales de cliente ya cargados) no queremos el
+  // tenant/usuarios/datos de demostración: solo se crea el SUPER_ADMIN.
+  if (process.env.SEED_ONLY_SUPER_ADMIN === 'true') {
+    // eslint-disable-next-line no-console
+    console.log('Seed (solo super admin) completado.');
+    // eslint-disable-next-line no-console
+    console.log(`  SUPER_ADMIN: ${superAdmin.email} / ${superPassword}`);
+    return;
+  }
+
   // --- Tenant demo ---
   const tenant = await prisma.tenant.upsert({
     where: { id: DEMO_TENANT_ID },
