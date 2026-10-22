@@ -23,6 +23,8 @@ export default function LotsPage() {
       error={error}
       onReload={reload}
       canWrite
+      searchBy={(r) => r.nombreLote}
+      searchPlaceholder="Buscar por número de lote…"
       extraHeader={<MasterImportButton entity="lots" onDone={reload} />}
       getId={(r) => r.id}
       getStatus={(r) => r.status}

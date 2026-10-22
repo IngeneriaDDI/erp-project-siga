@@ -1,6 +1,6 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Ban, CheckCircle2, Pencil, Plus, Save } from 'lucide-react';
+import { Ban, CheckCircle2, ChevronLeft, ChevronRight, Pencil, Plus, Save, Search } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
 import { Table, Column } from './ui/Table';
 import { Modal } from './ui/Modal';
@@ -41,6 +41,24 @@ interface CrudPageProps<T> {
   canWrite: boolean;
   onReload: () => void;
   extraHeader?: ReactNode;
+  /**
+   * Opcional: si se entrega, la pantalla muestra un buscador y paginación.
+   * Devuelve el texto sobre el que se busca (p. ej. código + nombre).
+   */
+  searchBy?: (row: T) => string;
+  searchPlaceholder?: string;
+  pageSize?: number;
+}
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+// Búsqueda sin distinguir mayúsculas ni tildes.
+function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function defaultValues(fields: CrudField[]): FormValues {
@@ -68,7 +86,30 @@ export function CrudPage<T>(props: CrudPageProps<T>) {
     canWrite,
     onReload,
     extraHeader,
+    searchBy,
+    searchPlaceholder,
+    pageSize: initialPageSize,
   } = props;
+
+  const paginated = !!searchBy;
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(initialPageSize ?? 25);
+
+  const filtered = useMemo(() => {
+    if (!searchBy) return rows;
+    const q = norm(query);
+    if (!q) return rows;
+    return rows.filter((r) => norm(searchBy(r)).includes(q));
+  }, [rows, query, searchBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRows = paginated
+    ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+    : rows;
+  const from = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const to = Math.min(safePage * pageSize, filtered.length);
 
   const noun = singular ?? title;
   const [open, setOpen] = useState(false);
@@ -163,7 +204,77 @@ export function CrudPage<T>(props: CrudPageProps<T>) {
       {error && <Alert>{error}</Alert>}
       {saved && <Alert variant="success">Cambios guardados correctamente.</Alert>}
 
-      {loading ? <Spinner /> : <Table columns={[...columns, ...actionColumns]} rows={rows} keyField={getId} />}
+      {paginated && (
+        <div className="relative max-w-sm">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder={searchPlaceholder ?? 'Buscar…'}
+            className="w-full rounded-lg border border-border py-2 pl-9 pr-3 text-sm text-content outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+      )}
+
+      {loading ? (
+        <Spinner />
+      ) : (
+        <Table columns={[...columns, ...actionColumns]} rows={visibleRows} keyField={getId} />
+      )}
+
+      {paginated && !loading && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
+          <span>
+            {filtered.length === 0
+              ? 'Sin resultados'
+              : `Mostrando ${from}–${to} de ${filtered.length}${
+                  filtered.length !== rows.length ? ` (filtrado de ${rows.length})` : ''
+                }`}
+          </span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1">
+              Por página
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-border px-2 py-1 text-sm text-content"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              variant="secondary"
+              onClick={() => setPage(safePage - 1)}
+              disabled={safePage <= 1}
+              leftIcon={<ChevronLeft size={16} />}
+            >
+              Anterior
+            </Button>
+            <span>
+              Página {safePage} de {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              onClick={() => setPage(safePage + 1)}
+              disabled={safePage >= totalPages}
+              leftIcon={<ChevronRight size={16} />}
+            >
+              Siguiente
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Modal
         open={open}
