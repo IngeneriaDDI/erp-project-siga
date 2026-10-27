@@ -15,6 +15,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "cleanup:demo": "ts-node prisma/cleanup-demo.ts",
+    "backfill:varieties": "ts-node prisma/backfill-varieties.ts",
     "prisma:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
     "test": "jest",

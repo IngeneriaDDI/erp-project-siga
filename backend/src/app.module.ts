@@ -24,6 +24,9 @@ import { OperationalModule } from './operational/operational.module';
 import { PermissionsCatalogModule } from './permissions/permissions.module';
 import { HarvestImportModule } from './harvest-import/harvest-import.module';
 import { MastersImportModule } from './masters-import/masters-import.module';
+import { VarietiesModule } from './varieties/varieties.module';
+import { ProductiveGroupsModule } from './productive-groups/productive-groups.module';
+import { ProductionGoalsModule } from './production-goals/production-goals.module';
 
 @Module({
   imports: [
@@ -46,6 +49,9 @@ import { MastersImportModule } from './masters-import/masters-import.module';
     PermissionsCatalogModule,
     HarvestImportModule,
     MastersImportModule,
+    VarietiesModule,
+    ProductiveGroupsModule,
+    ProductionGoalsModule,
   ],
   providers: [
     // Orden importante: autentica (JWT) → valida rol → valida permisos granulares.

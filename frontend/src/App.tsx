@@ -12,6 +12,9 @@ import WorkersPage from './pages/WorkersPage';
 import LotsPage from './pages/LotsPage';
 import ContainersPage from './pages/ContainersPage';
 import QualitiesPage from './pages/QualitiesPage';
+import VarietiesPage from './pages/VarietiesPage';
+import ProductionGoalsPage from './pages/ProductionGoalsPage';
+import ProductiveGroupsPage from './pages/ProductiveGroupsPage';
 import FieldConfigPage from './pages/FieldConfigPage';
 import HarvestListPage from './pages/HarvestListPage';
 import HarvestFormPage from './pages/HarvestFormPage';
@@ -165,6 +168,30 @@ export default function App() {
             element={
               <PermissionGuard allOf={[PERMS.ADMIN_QUALITIES_MANAGE]}>
                 <QualitiesPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="/varieties"
+            element={
+              <PermissionGuard allOf={[PERMS.ADMIN_VARIETIES_MANAGE]}>
+                <VarietiesPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="/productive-groups"
+            element={
+              <PermissionGuard allOf={[PERMS.ADMIN_PRODUCTIVE_GROUPS_MANAGE]}>
+                <ProductiveGroupsPage />
+              </PermissionGuard>
+            }
+          />
+          <Route
+            path="/production-goals"
+            element={
+              <PermissionGuard allOf={[PERMS.ADMIN_GOALS_VIEW]}>
+                <ProductionGoalsPage />
               </PermissionGuard>
             }
           />

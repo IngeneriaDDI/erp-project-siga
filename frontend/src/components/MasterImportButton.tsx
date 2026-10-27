@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '../lib/api';
 import {
   commitMasters,
   downloadFarmsReference,
+  downloadGoalsTemplate,
   downloadLotsTemplate,
   downloadWorkersTemplate,
   validateMasters,
@@ -50,7 +51,7 @@ export function MasterImportButton({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<MasterImportReport | null>(null);
 
-  const noun = entity === 'workers' ? 'trabajadores' : 'lotes';
+  const noun = entity === 'workers' ? 'trabajadores' : entity === 'lots' ? 'lotes' : 'metas (lote + año)';
   const reset = () => {
     setCsv(null);
     setFileName('');
@@ -126,7 +127,13 @@ export function MasterImportButton({
               variant="outline"
               size="sm"
               leftIcon={<Download size={15} />}
-              onClick={() => (entity === 'workers' ? downloadWorkersTemplate() : downloadLotsTemplate())}
+              onClick={() =>
+                entity === 'workers'
+                  ? downloadWorkersTemplate()
+                  : entity === 'lots'
+                    ? downloadLotsTemplate()
+                    : downloadGoalsTemplate()
+              }
             >
               Plantilla
             </Button>
@@ -160,16 +167,22 @@ export function MasterImportButton({
 
           {done && (
             <Alert variant="success">
-              Importación completada: {done.created} creados · {done.skipped} omitidos (ya existían).
+              Importación completada: {done.created} creados
+              {done.updated ? ` · ${done.updated} actualizados` : ''} · {done.skipped} omitidos (ya existían).
+              {done.roundedValues ? ` ${done.roundedValues} valores se redondearon a 3 decimales en gramos.` : ''}
             </Alert>
           )}
 
           {report && (
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2 rounded-lg bg-primary-light p-3 text-center">
+              <div className="grid grid-cols-4 gap-2 rounded-lg bg-primary-light p-3 text-center">
                 <div>
                   <div className="text-xs text-muted">Nuevos</div>
                   <div className="text-lg font-bold text-success">{report.valid}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted">A actualizar</div>
+                  <div className="text-lg font-bold text-content">{report.updated ?? 0}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted">Ya existen</div>

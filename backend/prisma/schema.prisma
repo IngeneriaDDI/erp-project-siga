@@ -100,6 +100,9 @@ model Tenant {
   harvestRecords HarvestRecord[]
   fieldConfigs   TenantModuleFieldConfig[]
   importBatches  ImportBatch[]
+  varieties        Variety[]
+  productiveGroups ProductiveGroup[]
+  productionGoals  LotProductionGoal[]
 
   @@map("tenants")
 }
@@ -187,20 +190,100 @@ model Lot {
   tenantId      String   @map("tenant_id")
   farmId        String   @map("farm_id")
   nombreLote    String   @map("nombre_lote")
+  // Texto de la variedad (se mantiene sincronizado con el catálogo `variety`;
+  // es el valor que se copia como snapshot a los registros de cosecha).
   variedad      String
   numeroPlantas Int?     @map("numero_plantas")
+  // Datos agronómicos del lote (opcionales; los catálogos evitan texto libre).
+  fechaSiembra      DateTime? @map("fecha_siembra") @db.Date
+  varietyId         String?   @map("variety_id")
+  productiveGroupId String?   @map("productive_group_id")
   status        Status   @default(ACTIVE)
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id])
-  farm           Farm            @relation(fields: [farmId], references: [id])
-  harvestRecords HarvestRecord[]
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  farm            Farm                @relation(fields: [farmId], references: [id])
+  variety         Variety?            @relation(fields: [varietyId], references: [id])
+  productiveGroup ProductiveGroup?    @relation(fields: [productiveGroupId], references: [id])
+  harvestRecords  HarvestRecord[]
+  productionGoals LotProductionGoal[]
 
   @@unique([farmId, nombreLote])
   @@index([tenantId])
   @@index([farmId])
+  @@index([varietyId])
+  @@index([productiveGroupId])
   @@map("lots")
+}
+
+// -------------------------------------------------------------------------
+// Variety / Variedad (catálogo por empresa; evita texto libre en los lotes)
+// -------------------------------------------------------------------------
+model Variety {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  nombre    String
+  status    Status   @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lots   Lot[]
+
+  @@unique([tenantId, nombre])
+  @@index([tenantId])
+  @@map("varieties")
+}
+
+// -------------------------------------------------------------------------
+// ProductiveGroup / Grupo productivo (catálogo por empresa)
+// -------------------------------------------------------------------------
+model ProductiveGroup {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  nombre    String
+  status    Status   @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lots   Lot[]
+
+  @@unique([tenantId, nombre])
+  @@index([tenantId])
+  @@map("productive_groups")
+}
+
+// -------------------------------------------------------------------------
+// LotProductionGoal / Meta de producción por lote, año y mes.
+// La meta se captura en kg/planta pero se guarda en GRAMOS/planta con
+// 3 decimales (Decimal exacto, nunca float). `plantasSnapshot` congela el
+// número de plantas al crear la meta para que el histórico no cambie si el
+// lote se edita. `metaGramosTotal` = plantasSnapshot × metaGramosPlanta
+// (listo para contrastar contra cosecha real en Power BI).
+// -------------------------------------------------------------------------
+model LotProductionGoal {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  lotId            String   @map("lot_id")
+  year             Int
+  month            Int
+  metaGramosPlanta Decimal  @map("meta_gramos_planta") @db.Decimal(12, 3)
+  plantasSnapshot  Int      @map("plantas_snapshot")
+  metaGramosTotal  Decimal  @map("meta_gramos_total") @db.Decimal(18, 3)
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  lot    Lot    @relation(fields: [lotId], references: [id])
+
+  // Un solo valor por lote, año y mes.
+  @@unique([lotId, year, month])
+  @@index([tenantId, year, month])
+  @@index([lotId])
+  @@map("lot_production_goals")
 }
 
 // -------------------------------------------------------------------------

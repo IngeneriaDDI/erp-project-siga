@@ -30,6 +30,8 @@ export interface MasterReport {
   valid: number;
   skipped: number;
   created: number;
+  /** Lotes existentes a los que se completan variedad/grupo/fecha de siembra. */
+  updated: number;
   errorRows: number;
   errors: RowError[];
   errorSummary: ErrorSummaryItem[];
@@ -40,8 +42,40 @@ interface ParsedRow {
   data: Record<string, string>;
 }
 
+interface CatalogItem {
+  id: string;
+  nombre: string;
+}
+
 const W = WORKER_COLUMNS;
 const L = LOT_COLUMNS;
+
+/** Fecha `AAAA-MM-DD` o `DD/MM/AAAA` (short date de Excel-ES). */
+function parseSiembraDate(raw: string): Date | null {
+  const s = raw.trim();
+  let iso: string | null = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    iso = s;
+  } else {
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== iso) return null;
+  return d;
+}
+
+function catalogMap(items: CatalogItem[]): Map<string, CatalogItem[]> {
+  const map = new Map<string, CatalogItem[]>();
+  for (const it of items) {
+    const key = normalizeRef(it.nombre);
+    const arr = map.get(key);
+    if (arr) arr.push(it);
+    else map.set(key, [it]);
+  }
+  return map;
+}
 
 @Injectable()
 export class MastersImportService {
@@ -208,6 +242,7 @@ export class MastersImportService {
         valid: toCreate.length,
         skipped,
         created: 0,
+        updated: 0,
         errorRows: errors.length,
         errors,
         errorSummary: this.summarize(errors),
@@ -224,11 +259,19 @@ export class MastersImportService {
 
   async importLots(tenantId: string | null, csv: string): Promise<MasterReport> {
     const tid = requireTenant(tenantId);
-    const { report, toCreate } = await this.runLots(tid, csv);
-    if (report.errorRows > 0) return report;
+    const { report, toCreate, toUpdate } = await this.runLots(tid, csv);
+    if (report.errorRows > 0) return report; // todo-o-nada
     if (toCreate.length > 0) {
       const res = await this.prisma.lot.createMany({ data: toCreate, skipDuplicates: true });
       report.created = res.count;
+    }
+    if (toUpdate.length > 0) {
+      // Solo completa campos (variedad/grupo/fecha) de lotes que ya existen.
+      await this.prisma.$transaction(
+        toUpdate.map((u) =>
+          this.prisma.lot.updateMany({ where: { id: u.id, tenantId: tid }, data: u.data }),
+        ),
+      );
     }
     return report;
   }
@@ -236,7 +279,11 @@ export class MastersImportService {
   private async runLots(
     tenantId: string | null,
     csv: string,
-  ): Promise<{ report: MasterReport; toCreate: Prisma.LotCreateManyInput[] }> {
+  ): Promise<{
+    report: MasterReport;
+    toCreate: Prisma.LotCreateManyInput[];
+    toUpdate: { id: string; data: Prisma.LotUncheckedUpdateManyInput }[];
+  }> {
     const tid = requireTenant(tenantId);
     const { rows, missing } = this.parse(csv, LOT_REQUIRED);
     if (missing.length > 0) {
@@ -245,6 +292,7 @@ export class MastersImportService {
           { row: 0, code: MASTER_ERROR.MISSING_HEADER, message: `Faltan encabezados: ${missing.join(', ')}` },
         ]),
         toCreate: [],
+        toUpdate: [],
       };
     }
     if (rows.length > MASTERS_MAX_ROWS) {
@@ -252,16 +300,39 @@ export class MastersImportService {
     }
 
     const farms = await this.farmMap(tid);
-    const existing = new Set(
-      (await this.prisma.lot.findMany({ where: { tenantId: tid }, select: { farmId: true, nombreLote: true } })).map(
-        (l) => `${l.farmId} ${normalizeRef(l.nombreLote)}`,
-      ),
+    const varieties = catalogMap(
+      await this.prisma.variety.findMany({
+        where: { tenantId: tid },
+        select: { id: true, nombre: true },
+      }),
+    );
+    const groups = catalogMap(
+      await this.prisma.productiveGroup.findMany({
+        where: { tenantId: tid },
+        select: { id: true, nombre: true },
+      }),
+    );
+    const existing = new Map(
+      (
+        await this.prisma.lot.findMany({
+          where: { tenantId: tid },
+          select: {
+            id: true,
+            farmId: true,
+            nombreLote: true,
+            varietyId: true,
+            productiveGroupId: true,
+            fechaSiembra: true,
+          },
+        })
+      ).map((l) => [`${l.farmId} ${normalizeRef(l.nombreLote)}` as string, l] as const),
     );
 
     const errors: RowError[] = [];
     const seen = new Set<string>();
     let skipped = 0;
     const toCreate: Prisma.LotCreateManyInput[] = [];
+    const toUpdate: { id: string; data: Prisma.LotUncheckedUpdateManyInput }[] = [];
 
     for (const r of rows) {
       const rowErr: RowError[] = [];
@@ -289,6 +360,32 @@ export class MastersImportService {
         else numeroPlantas = Number(npRaw);
       }
 
+      // Variedad: debe existir en el catálogo (no se aceptan textos libres).
+      const varRaw = r.data[L.variedad];
+      const varMatches = varieties.get(normalizeRef(varRaw));
+      if (!varMatches) push(MASTER_ERROR.REF_NOT_FOUND, 'La variedad no existe en el catálogo (créala primero)', L.variedad, varRaw);
+      else if (varMatches.length > 1) push(MASTER_ERROR.REF_AMBIGUOUS, 'Variedad ambigua en el catálogo', L.variedad, varRaw);
+      const variety = varMatches?.length === 1 ? varMatches[0] : undefined;
+
+      // Grupo productivo (opcional): si viene, debe existir en el catálogo.
+      let group: CatalogItem | undefined;
+      const grpRaw = (r.data[L.grupoProductivo] ?? '').trim();
+      if (grpRaw !== '') {
+        const gm = groups.get(normalizeRef(grpRaw));
+        if (!gm) push(MASTER_ERROR.REF_NOT_FOUND, 'El grupo productivo no existe en el catálogo (créalo primero)', L.grupoProductivo, grpRaw);
+        else if (gm.length > 1) push(MASTER_ERROR.REF_AMBIGUOUS, 'Grupo productivo ambiguo', L.grupoProductivo, grpRaw);
+        else group = gm[0];
+      }
+
+      // Fecha de siembra (opcional).
+      let fechaSiembra: Date | undefined;
+      const fechaRaw = (r.data[L.fechaSiembra] ?? '').trim();
+      if (fechaRaw !== '') {
+        const d = parseSiembraDate(fechaRaw);
+        if (!d) push(MASTER_ERROR.INVALID_DATE, 'Fecha de siembra inválida (AAAA-MM-DD o DD/MM/AAAA)', L.fechaSiembra, fechaRaw);
+        else fechaSiembra = d;
+      }
+
       const codigo = (r.data[L.codigo] ?? '').trim();
       const dupKey = `${farm.id ?? '?'} ${normalizeRef(codigo)}`;
       if (farm.id && seen.has(dupKey)) push(MASTER_ERROR.DUPLICATE_IN_FILE, `Lote repetido en el archivo (misma finca)`, L.codigo, codigo);
@@ -299,8 +396,24 @@ export class MastersImportService {
       }
       seen.add(dupKey);
 
-      if (existing.has(dupKey)) {
-        skipped++;
+      const cur = existing.get(dupKey);
+      if (cur) {
+        // Lote existente: solo se COMPLETAN variedad/grupo/fecha cuando cambian.
+        const patch: Prisma.LotUncheckedUpdateManyInput = {};
+        if (variety && cur.varietyId !== variety.id) {
+          patch.varietyId = variety.id;
+          patch.variedad = variety.nombre;
+        }
+        if (group && cur.productiveGroupId !== group.id) patch.productiveGroupId = group.id;
+        if (
+          fechaSiembra &&
+          (!cur.fechaSiembra ||
+            cur.fechaSiembra.toISOString().slice(0, 10) !== fechaSiembra.toISOString().slice(0, 10))
+        ) {
+          patch.fechaSiembra = fechaSiembra;
+        }
+        if (Object.keys(patch).length > 0) toUpdate.push({ id: cur.id, data: patch });
+        else skipped++; // idempotente: ya está igual
         continue;
       }
 
@@ -308,7 +421,10 @@ export class MastersImportService {
         tenantId: tid,
         farmId: farm.id as string,
         nombreLote: codigo,
-        variedad: r.data[L.variedad].trim(),
+        variedad: (variety as CatalogItem).nombre,
+        varietyId: (variety as CatalogItem).id,
+        productiveGroupId: group?.id,
+        fechaSiembra,
         numeroPlantas,
         status: estado as Status,
       });
@@ -320,11 +436,13 @@ export class MastersImportService {
         valid: toCreate.length,
         skipped,
         created: 0,
+        updated: toUpdate.length,
         errorRows: errors.length,
         errors,
         errorSummary: this.summarize(errors),
       },
       toCreate,
+      toUpdate,
     };
   }
 
@@ -334,6 +452,7 @@ export class MastersImportService {
       valid: 0,
       skipped: 0,
       created: 0,
+      updated: 0,
       errorRows: errors.length,
       errors,
       errorSummary: this.summarize(errors),

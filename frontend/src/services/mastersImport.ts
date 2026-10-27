@@ -16,19 +16,27 @@ export interface MasterImportReport {
   totalRows: number;
   valid: number;
   skipped: number;
+  /** Lotes existentes completados (variedad/grupo/fecha de siembra). */
+  updated?: number;
   created: number;
   errorRows: number;
   errors: MasterRowError[];
   errorSummary: MasterErrorSummaryItem[];
+  /** Solo metas: valores redondeados a 3 decimales en gramos. */
+  roundedValues?: number;
 }
 
-export type MasterEntity = 'workers' | 'lots';
+export type MasterEntity = 'workers' | 'lots' | 'goals';
+
+// Las metas viven en su propio módulo (/production-goals/import/*).
+const base = (entity: MasterEntity, action: 'validate' | 'commit') =>
+  entity === 'goals' ? `/production-goals/import/${action}` : `/masters-imports/${entity}/${action}`;
 
 export const validateMasters = (entity: MasterEntity, csv: string) =>
-  api.post<MasterImportReport>(`/masters-imports/${entity}/validate`, { csv }).then((r) => r.data);
+  api.post<MasterImportReport>(base(entity, 'validate'), { csv }).then((r) => r.data);
 
 export const commitMasters = (entity: MasterEntity, csv: string) =>
-  api.post<MasterImportReport>(`/masters-imports/${entity}/commit`, { csv }).then((r) => r.data);
+  api.post<MasterImportReport>(base(entity, 'commit'), { csv }).then((r) => r.data);
 
 async function download(pathname: string, filename: string) {
   const res = await api.get(pathname, { responseType: 'blob' });
@@ -44,5 +52,7 @@ export const downloadWorkersTemplate = () =>
   download('/masters-imports/files/workers-template', 'plantilla_trabajadores.csv');
 export const downloadLotsTemplate = () =>
   download('/masters-imports/files/lots-template', 'plantilla_lotes.csv');
+export const downloadGoalsTemplate = () =>
+  download('/production-goals/import/template', 'plantilla_metas.csv');
 export const downloadFarmsReference = () =>
   download('/masters-imports/files/references/farms', 'referencias_fincas.csv');

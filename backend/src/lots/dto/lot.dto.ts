@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
@@ -19,10 +20,25 @@ export class CreateLotDto {
   @MaxLength(100)
   nombreLote!: string;
 
+  // Variedad: se indica por catálogo (`varietyId`, recomendado). El texto se
+  // acepta solo si coincide con una variedad existente del catálogo.
+  @IsOptional()
+  @IsUUID()
+  varietyId?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(100)
-  variedad!: string;
+  variedad?: string;
+
+  @IsOptional()
+  @IsUUID()
+  productiveGroupId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fechaSiembra?: string;
 
   @IsOptional()
   @IsInt()
@@ -43,10 +59,22 @@ export class UpdateLotDto {
   nombreLote?: string;
 
   @IsOptional()
+  @IsUUID()
+  varietyId?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(100)
   variedad?: string;
+
+  @IsOptional()
+  @IsUUID()
+  productiveGroupId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  fechaSiembra?: string;
 
   @IsOptional()
   @IsInt()

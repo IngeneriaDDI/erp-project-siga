@@ -33,6 +33,12 @@ export const PERMS = {
   ADMIN_CONTAINERS_MANAGE: 'admin.containers.manage',
   ADMIN_QUALITIES_VIEW: 'admin.qualities.view',
   ADMIN_QUALITIES_MANAGE: 'admin.qualities.manage',
+  ADMIN_VARIETIES_VIEW: 'admin.varieties.view',
+  ADMIN_VARIETIES_MANAGE: 'admin.varieties.manage',
+  ADMIN_PRODUCTIVE_GROUPS_VIEW: 'admin.productive_groups.view',
+  ADMIN_PRODUCTIVE_GROUPS_MANAGE: 'admin.productive_groups.manage',
+  ADMIN_GOALS_VIEW: 'admin.goals.view',
+  ADMIN_GOALS_MANAGE: 'admin.goals.manage',
 
   OPERATIONAL_ASSIGNMENTS_MANAGE: 'operational.assignments.manage',
 
@@ -119,6 +125,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       { key: PERMS.ADMIN_CONTAINERS_MANAGE, label: 'Gestionar recipientes', kind: 'action' },
       { key: PERMS.ADMIN_QUALITIES_MANAGE, label: 'Gestionar calidades', kind: 'action' },
       { key: PERMS.ADMIN_FARMS_MANAGE, label: 'Gestionar fincas', kind: 'action' },
+      { key: PERMS.ADMIN_VARIETIES_MANAGE, label: 'Gestionar variedades', kind: 'action' },
+      { key: PERMS.ADMIN_PRODUCTIVE_GROUPS_MANAGE, label: 'Gestionar grupos productivos', kind: 'action' },
+      { key: PERMS.ADMIN_GOALS_MANAGE, label: 'Gestionar metas de producción', kind: 'action' },
     ],
   },
 ];

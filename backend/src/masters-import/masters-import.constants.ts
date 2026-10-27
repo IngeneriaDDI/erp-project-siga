@@ -28,6 +28,8 @@ export const LOT_COLUMNS = {
   variedad: 'variedad',
   numeroPlantas: 'numero_plantas',
   estado: 'estado',
+  fechaSiembra: 'fecha_siembra',
+  grupoProductivo: 'grupo_productivo',
 } as const;
 
 export const LOT_REQUIRED = [LOT_COLUMNS.finca, LOT_COLUMNS.codigo, LOT_COLUMNS.variedad];
@@ -37,6 +39,8 @@ export const LOT_TEMPLATE = [
   LOT_COLUMNS.variedad,
   LOT_COLUMNS.numeroPlantas,
   LOT_COLUMNS.estado,
+  LOT_COLUMNS.fechaSiembra,
+  LOT_COLUMNS.grupoProductivo,
 ];
 
 export const MASTER_ERROR = {
@@ -47,9 +51,14 @@ export const MASTER_ERROR = {
   INVALID_NUMBER: 'INVALID_NUMBER',
   NEGATIVE_VALUE: 'NEGATIVE_VALUE',
   INVALID_STATUS: 'INVALID_STATUS',
+  INVALID_DATE: 'INVALID_DATE',
   DUPLICATE_IN_FILE: 'DUPLICATE_IN_FILE',
   DUPLICATE_EXISTING: 'DUPLICATE_EXISTING',
   ROW_LIMIT_EXCEEDED: 'ROW_LIMIT_EXCEEDED',
+  // Metas de producción
+  INCOMPLETE_YEAR: 'INCOMPLETE_YEAR',
+  LOT_NOT_ELIGIBLE: 'LOT_NOT_ELIGIBLE',
+  INVALID_RANGE: 'INVALID_RANGE',
 } as const;
 
 export type MasterErrorCode = (typeof MASTER_ERROR)[keyof typeof MASTER_ERROR];

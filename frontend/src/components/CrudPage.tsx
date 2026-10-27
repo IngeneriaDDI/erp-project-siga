@@ -13,7 +13,7 @@ import type { Status } from '../types';
 export interface CrudField {
   name: string;
   label: string;
-  type?: 'text' | 'number' | 'select' | 'checkbox' | 'textarea' | 'password';
+  type?: 'text' | 'number' | 'select' | 'checkbox' | 'textarea' | 'password' | 'date';
   options?: { value: string; label: string }[];
   required?: boolean;
   placeholder?: string;
@@ -330,7 +330,15 @@ export function CrudPage<T>(props: CrudPageProps<T>) {
               <Input
                 key={f.name}
                 label={f.label}
-                type={f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text'}
+                type={
+                  f.type === 'number'
+                    ? 'number'
+                    : f.type === 'password'
+                      ? 'password'
+                      : f.type === 'date'
+                        ? 'date'
+                        : 'text'
+                }
                 step={f.type === 'number' ? f.step : undefined}
                 placeholder={f.placeholder}
                 {...register(f.name, { required: f.required, valueAsNumber: f.type === 'number' })}

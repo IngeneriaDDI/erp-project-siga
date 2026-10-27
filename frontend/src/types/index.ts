@@ -127,6 +127,24 @@ export interface Lot {
   nombreLote: string;
   variedad: string;
   numeroPlantas?: number | null;
+  fechaSiembra?: string | null;
+  varietyId?: string | null;
+  productiveGroupId?: string | null;
+  status: Status;
+}
+
+/** Catálogos por empresa (variedades y grupos productivos). */
+export interface Variety {
+  id: string;
+  tenantId: string;
+  nombre: string;
+  status: Status;
+}
+
+export interface ProductiveGroup {
+  id: string;
+  tenantId: string;
+  nombre: string;
   status: Status;
 }
 

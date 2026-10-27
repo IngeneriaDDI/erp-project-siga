@@ -35,6 +35,12 @@ export const PERMISSIONS = {
   ADMIN_CONTAINERS_MANAGE: 'admin.containers.manage',
   ADMIN_QUALITIES_VIEW: 'admin.qualities.view',
   ADMIN_QUALITIES_MANAGE: 'admin.qualities.manage',
+  ADMIN_VARIETIES_VIEW: 'admin.varieties.view',
+  ADMIN_VARIETIES_MANAGE: 'admin.varieties.manage',
+  ADMIN_PRODUCTIVE_GROUPS_VIEW: 'admin.productive_groups.view',
+  ADMIN_PRODUCTIVE_GROUPS_MANAGE: 'admin.productive_groups.manage',
+  ADMIN_GOALS_VIEW: 'admin.goals.view',
+  ADMIN_GOALS_MANAGE: 'admin.goals.manage',
 
   OPERATIONAL_ASSIGNMENTS_MANAGE: 'operational.assignments.manage',
 
@@ -81,6 +87,12 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
     P.ADMIN_CONTAINERS_MANAGE,
     P.ADMIN_QUALITIES_VIEW,
     P.ADMIN_QUALITIES_MANAGE,
+    P.ADMIN_VARIETIES_VIEW,
+    P.ADMIN_VARIETIES_MANAGE,
+    P.ADMIN_PRODUCTIVE_GROUPS_VIEW,
+    P.ADMIN_PRODUCTIVE_GROUPS_MANAGE,
+    P.ADMIN_GOALS_VIEW,
+    P.ADMIN_GOALS_MANAGE,
     P.OPERATIONAL_ASSIGNMENTS_MANAGE,
   ],
   // Operador: por defecto solo registros de cosecha. Remisiones/órdenes se
