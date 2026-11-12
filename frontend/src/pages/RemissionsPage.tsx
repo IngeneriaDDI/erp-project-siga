@@ -128,6 +128,7 @@ export default function RemissionsPage() {
             options={farmLots.map((l) => ({
               value: l.id,
               label: l.nombreLote,
+              code: l.nombreLote,
               keywords: `${l.nombreLote} ${l.variedad}`,
             }))}
           />

@@ -38,6 +38,38 @@ export class HarvestService {
     private readonly identity: OperationalIdentityService,
   ) {}
 
+  /**
+   * Finca y lote por defecto para un registro nuevo: los del último registro
+   * creado por el usuario; si no tiene ninguno, los del último de la empresa.
+   * Solo se devuelven si finca y lote siguen ACTIVOS; si no, vacío.
+   */
+  async lastContext(actor: AuthUser, tenantId: string | null) {
+    const tid = requireTenant(tenantId);
+    const select = { farmId: true, lotId: true } as const;
+    const mine = await this.prisma.harvestRecord.findFirst({
+      where: { tenantId: tid, createdBy: actor.userId },
+      orderBy: { createdAt: 'desc' },
+      select,
+    });
+    const last =
+      mine ??
+      (await this.prisma.harvestRecord.findFirst({
+        where: { tenantId: tid },
+        orderBy: { createdAt: 'desc' },
+        select,
+      }));
+    if (!last) return { farmId: null, lotId: null };
+
+    const [farm, lot] = await Promise.all([
+      this.prisma.farm.findFirst({ where: { id: last.farmId, tenantId: tid, status: 'ACTIVE' }, select: { id: true } }),
+      this.prisma.lot.findFirst({
+        where: { id: last.lotId, tenantId: tid, farmId: last.farmId, status: 'ACTIVE' },
+        select: { id: true },
+      }),
+    ]);
+    return { farmId: farm ? last.farmId : null, lotId: farm && lot ? last.lotId : null };
+  }
+
   async findAll(tenantId: string | null, query: QueryHarvestDto) {
     const tid = requireTenant(tenantId);
 

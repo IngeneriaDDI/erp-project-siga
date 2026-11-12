@@ -26,6 +26,13 @@ export class HarvestController {
     return this.service.findAll(tenantId, query);
   }
 
+  // Debe ir ANTES de ':id' para que no se interprete como un id.
+  @RequirePermissions(PERMISSIONS.HARVEST_RECORDS_CREATE)
+  @Get('last-context')
+  lastContext(@CurrentUser() actor: AuthUser, @TenantId() tenantId: string | null) {
+    return this.service.lastContext(actor, tenantId);
+  }
+
   @RequirePermissions(PERMISSIONS.HARVEST_RECORDS_VIEW)
   @Get(':id')
   findOne(@TenantId() tenantId: string | null, @Param('id') id: string) {

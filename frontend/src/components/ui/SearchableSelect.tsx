@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { searchCodeFirst } from '../../lib/search';
 
 export interface SearchableOption {
   value: string;
   label: string;
   /** Texto adicional por el que también se puede buscar (p. ej. código, documento). */
   keywords?: string;
+  /**
+   * Código identificador (p. ej. código del trabajador, número de lote).
+   * Si lo escrito coincide exactamente con un código, solo se muestra esa opción.
+   */
+  code?: string;
 }
 
 interface Props {
@@ -43,10 +49,11 @@ export function SearchableSelect({
   const selected = options.find((o) => o.value === value) ?? null;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) =>
-      `${o.label} ${o.keywords ?? ''}`.toLowerCase().includes(q),
+    return searchCodeFirst(
+      options,
+      query,
+      (o) => (o.code ? [o.code] : []),
+      (o) => `${o.label} ${o.keywords ?? ''}`,
     );
   }, [options, query]);
 
