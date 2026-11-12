@@ -88,6 +88,8 @@ model Tenant {
   // filtra por la finca de la operación. Si false, se permite cualquier
   // trabajador del tenant (empresas que comparten personal entre fincas).
   workersFilteredByFarm Boolean @default(true) @map("workers_filtered_by_farm")
+  // Contador del consecutivo de registros de cosecha (último número asignado).
+  harvestRecordCounter Int @default(0) @map("harvest_record_counter")
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
@@ -274,6 +276,8 @@ model HarvestRecord {
   // Carga masiva: lote de importación y clave natural para idempotencia/duplicados.
   importBatchId              String?       @map("import_batch_id")
   rowHash                    String?       @map("row_hash")
+  // Consecutivo legible por empresa (1, 2, 3…). Se asigna al crear; nunca se reutiliza.
+  recordNumber               Int?          @map("record_number")
   createdAt                  DateTime      @default(now()) @map("created_at")
   updatedAt                  DateTime      @updatedAt @map("updated_at")
 
@@ -294,6 +298,7 @@ model HarvestRecord {
   @@index([workerId])
   @@index([lotId])
   @@index([importBatchId])
+  @@unique([tenantId, recordNumber])
   @@map("harvest_records")
 }
 

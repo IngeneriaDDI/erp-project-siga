@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { requireTenant } from '../common/tenant/tenant.util';
 import { ReferenceDictionaryService } from './reference-dictionary.service';
 import { parseCsv } from './csv.util';
+import { allocateRecordNumbers, sortByFechaStable } from '../harvest/record-number.util';
 import { REQUIRED_COLUMNS, TEMPLATE_COLUMNS, IMPORT_ERROR, UI_MAX_ROWS } from './harvest-import.constants';
 import { validateRecords, RawRow } from './harvest-import.validator';
 import {
@@ -253,10 +254,17 @@ export class HarvestImportService {
     batchId: string,
     records: ValidatedRecord[],
   ) {
-    for (let i = 0; i < records.length; i += INSERT_CHUNK) {
-      const slice = records.slice(i, i + INSERT_CHUNK);
+    // Numeración cronológica: primero lo más antiguo (estable dentro del mismo día).
+    const ordered = sortByFechaStable(records);
+    for (let i = 0; i < ordered.length; i += INSERT_CHUNK) {
+      const slice = ordered.slice(i, i + INSERT_CHUNK);
       const headerData: Prisma.HarvestRecordCreateManyInput[] = [];
       const containerData: Prisma.HarvestRecordContainerCreateManyInput[] = [];
+      // Bloque de números reservado en una sentencia corta e independiente (no
+      // mantiene bloqueada la empresa durante el insert masivo). Si el bloque
+      // falla al insertarse pueden quedar huecos en la numeración; es aceptable.
+      const firstNumber = await allocateRecordNumbers(this.prisma, tenantId, slice.length);
+      let offset = 0;
       for (const rec of slice) {
         const id = randomUUID();
         headerData.push({
@@ -278,6 +286,7 @@ export class HarvestImportService {
           createdBy: userId,
           importBatchId: batchId,
           rowHash: rec.rowHash,
+          recordNumber: firstNumber + offset++,
         });
         for (const rc of rec.recipients) {
           containerData.push({

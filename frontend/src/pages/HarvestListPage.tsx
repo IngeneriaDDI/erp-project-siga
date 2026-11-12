@@ -143,6 +143,7 @@ export default function HarvestListPage() {
           keyField={(r) => r.id}
           rows={data?.data ?? []}
           columns={[
+            { header: 'N.°', render: (r) => r.recordNumber ?? '—' },
             { header: 'Fecha', render: (r) => r.fecha?.slice(0, 10) },
             { header: 'Finca', render: (r) => r.farm?.nombre ?? '—' },
             { header: 'Trabajador', render: (r) => r.worker?.nombre ?? '—' },
