@@ -122,6 +122,7 @@ function ContextCard({
             options={workers.map((w) => ({
               value: w.id,
               label: `${w.nombre} (${w.codigoInterno})`,
+              code: w.codigoInterno,
               keywords: `${w.codigoInterno} ${w.nombre} ${w.documento ?? ''}`,
             }))}
           />

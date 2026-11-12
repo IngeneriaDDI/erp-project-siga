@@ -40,6 +40,7 @@ export default function WorkersPage() {
       onReload={reload}
       canWrite
       searchBy={(r) => `${r.codigoInterno} ${r.nombre}`}
+      searchCodes={(r) => [r.codigoInterno]}
       searchPlaceholder="Buscar por código o nombre…"
       extraHeader={<MasterImportButton entity="workers" onDone={reload} />}
       getId={(r) => r.id}
