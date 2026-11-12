@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
@@ -12,6 +12,7 @@ import { getHarvestFieldConfig, getHarvestTenantSettings } from '../services/fie
 import {
   createHarvest,
   getHarvest,
+  getHarvestLastContext,
   updateHarvest,
   type HarvestSaveInput,
 } from '../services/harvest';
@@ -66,6 +67,11 @@ export default function HarvestFormPage() {
   const config = useAsyncData(getHarvestFieldConfig, []);
   // Ajuste por empresa: ¿se filtran los trabajadores por finca? (resuelto por el tenant actual).
   const tenantSettings = useAsyncData(getHarvestTenantSettings, []);
+  // Último contexto (finca/lote) para prellenar al crear; si falla, el formulario queda vacío.
+  const lastCtx = useAsyncData(
+    () => (id ? Promise.resolve(null) : getHarvestLastContext().catch(() => null)),
+    [id],
+  );
   const filterByFarm = tenantSettings.data?.workersFilteredByFarm ?? true;
 
   const { register, control, handleSubmit, watch, reset, setValue, getValues } = useForm<FormValues>({
@@ -118,6 +124,21 @@ export default function HarvestFormPage() {
         .catch((e) => setFormError(getApiErrorMessage(e)));
     }
   }, [editing, id, reset, weightUnit]);
+
+  // Finca y lote por defecto = los del último registro (solo al crear, una vez).
+  const lastCtxApplied = useRef(false);
+  useEffect(() => {
+    if (editing || lastCtxApplied.current) return;
+    if (lastCtx.loading || farms.loading || lots.loading) return;
+    lastCtxApplied.current = true;
+    const ctx = lastCtx.data;
+    if (!ctx?.farmId) return;
+    const farmOk = (farms.data ?? []).some((f) => f.id === ctx.farmId);
+    if (!farmOk) return;
+    setValue('farmId', ctx.farmId);
+    const lotOk = (lots.data ?? []).some((l) => l.id === ctx.lotId && l.farmId === ctx.farmId);
+    if (ctx.lotId && lotOk) setValue('lotId', ctx.lotId);
+  }, [editing, lastCtx.loading, lastCtx.data, farms.loading, farms.data, lots.loading, lots.data, setValue]);
 
   // Prellena el recipiente por defecto (el marcado como predeterminado), solo al crear.
   useEffect(() => {
@@ -240,7 +261,8 @@ export default function HarvestFormPage() {
     containersQ.loading ||
     qualities.loading ||
     config.loading ||
-    tenantSettings.loading;
+    tenantSettings.loading ||
+    lastCtx.loading;
 
   if (dataLoading) return <Spinner label="Cargando formulario…" />;
 
@@ -299,6 +321,7 @@ export default function HarvestFormPage() {
                   }
                   options={farmWorkers.map((w) => ({
                     value: w.id,
+                    code: w.codigoInterno,
                     // Con el filtro apagado se muestra la finca (home) para reducir errores.
                     label: filterByFarm
                       ? `${w.codigoInterno} · ${w.nombre}`
@@ -335,6 +358,7 @@ export default function HarvestFormPage() {
                   options={farmLots.map((l) => ({
                     value: l.id,
                     label: l.nombreLote,
+                    code: l.nombreLote,
                     keywords: `${l.nombreLote} ${l.variedad}`,
                   }))}
                 />

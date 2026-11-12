@@ -100,6 +100,7 @@ export default function HarvestListPage() {
           options={(workers.data ?? []).map((w) => ({
             value: w.id,
             label: `${w.codigoInterno} · ${w.nombre}`,
+            code: w.codigoInterno,
             keywords: `${w.codigoInterno} ${w.nombre} ${w.documento ?? ''}`,
           }))}
         />
@@ -111,6 +112,7 @@ export default function HarvestListPage() {
           options={(lots.data ?? []).map((l) => ({
             value: l.id,
             label: l.nombreLote,
+            code: l.nombreLote,
             keywords: `${l.nombreLote} ${l.variedad}`,
           }))}
         />

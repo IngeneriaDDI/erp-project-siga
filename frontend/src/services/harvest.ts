@@ -35,7 +35,12 @@ export interface HarvestFilters {
 export const listHarvest = (params?: HarvestFilters) =>
   api.get<Paginated<HarvestRecord>>('/harvest-records', { params }).then((r) => r.data);
 
-export const getHarvest = (id: string) =>
+export const getHarvestLastContext = () =>
+  api
+    .get<{ farmId: string | null; lotId: string | null }>('/harvest-records/last-context')
+    .then((r) => r.data);
+
+export const getHarvest =(id: string) =>
   api.get<HarvestRecord>(`/harvest-records/${id}`).then((r) => r.data);
 
 export const createHarvest = (body: HarvestSaveInput) =>

@@ -4,6 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import App from './App';
 import './index.css';
+import { installNumberInputGuard } from './lib/numberInputGuard';
+
+installNumberInputGuard();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

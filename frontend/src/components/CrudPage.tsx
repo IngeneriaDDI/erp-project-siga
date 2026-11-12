@@ -8,6 +8,7 @@ import { Input } from './ui/Input';
 import { Select } from './ui/Select';
 import { Alert, Spinner, StatusBadge } from './ui/misc';
 import { getApiErrorMessage } from '../lib/api';
+import { searchCodeFirst } from '../lib/search';
 import type { Status } from '../types';
 
 export interface CrudField {
@@ -46,6 +47,11 @@ interface CrudPageProps<T> {
    * Devuelve el texto sobre el que se busca (p. ej. código + nombre).
    */
   searchBy?: (row: T) => string;
+  /**
+   * Opcional: códigos de la fila (p. ej. código del trabajador, número de lote).
+   * Si lo escrito coincide exactamente con un código, solo se muestran esas filas.
+   */
+  searchCodes?: (row: T) => string[];
   searchPlaceholder?: string;
   pageSize?: number;
 }
@@ -87,6 +93,7 @@ export function CrudPage<T>(props: CrudPageProps<T>) {
     onReload,
     extraHeader,
     searchBy,
+    searchCodes,
     searchPlaceholder,
     pageSize: initialPageSize,
   } = props;
@@ -98,10 +105,9 @@ export function CrudPage<T>(props: CrudPageProps<T>) {
 
   const filtered = useMemo(() => {
     if (!searchBy) return rows;
-    const q = norm(query);
-    if (!q) return rows;
-    return rows.filter((r) => norm(searchBy(r)).includes(q));
-  }, [rows, query, searchBy]);
+    if (!norm(query)) return rows;
+    return searchCodeFirst(rows, query, searchCodes ?? (() => []), searchBy);
+  }, [rows, query, searchBy, searchCodes]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
