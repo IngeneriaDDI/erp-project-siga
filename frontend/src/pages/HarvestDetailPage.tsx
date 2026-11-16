@@ -81,6 +81,7 @@ export default function HarvestDetailPage() {
       {actionError && <Alert>{actionError}</Alert>}
 
       <div className="grid gap-4 rounded-xl border border-border bg-surface p-4 shadow-card sm:grid-cols-3">
+        <Field label="N.° de registro" value={rec.recordNumber != null ? String(rec.recordNumber) : '—'} />
         <Field label="Fecha" value={rec.fecha?.slice(0, 10)} />
         <Field label="Finca" value={rec.farm?.nombre} />
         <Field label="Trabajador" value={`${rec.worker?.codigoInterno ?? ''} · ${rec.worker?.nombre ?? ''}`} />

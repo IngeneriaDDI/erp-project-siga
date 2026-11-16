@@ -213,8 +213,16 @@ async function main() {
       0,
     );
 
+    // Consecutivo del registro de ejemplo y contador de la empresa en sincronía.
+    const seeded = await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { harvestRecordCounter: { increment: 1 } },
+      select: { harvestRecordCounter: true },
+    });
+
     await prisma.harvestRecord.create({
       data: {
+        recordNumber: seeded.harvestRecordCounter,
         tenantId: tenant.id,
         farmId: farm.id,
         fecha: new Date('2026-07-06'),
