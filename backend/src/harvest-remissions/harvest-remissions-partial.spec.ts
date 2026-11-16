@@ -16,9 +16,12 @@ const rec = (id: string, peso = 1000, can = 2, q = 'q1'): Rec => ({
   canastillas: can,
 });
 
-function make(over: { taken?: Record<string, string>; loaded?: Rec[]; createError?: unknown } = {}) {
+function make(
+  over: { taken?: Record<string, string>; loaded?: Rec[]; createError?: unknown; order?: { id: string; documentNumber: string; status: string } | null } = {},
+) {
   const taken = over.taken ?? {};
   const prisma = {
+    productionOrder: { findFirst: jest.fn().mockResolvedValue(over.order ?? null) },
     harvestRemissionSource: {
       findMany: jest.fn().mockResolvedValue(
         Object.entries(taken).map(([id, doc]) => ({ harvestRecordId: id, remission: { documentNumber: doc } })),
@@ -130,6 +133,28 @@ describe('HarvestRemissionsService — remisiones parciales', () => {
         }),
       }),
     );
+  });
+});
+
+describe('HarvestRemissionsService — orden de producción del día', () => {
+  it('con orden ABIERTA: la remisión queda enlazada a la orden', async () => {
+    const { svc, prisma } = make({ loaded: [rec('a')], order: { id: 'o1', documentNumber: 'OP-1', status: 'ABIERTA' } });
+    await svc.create(actor, TID, { date: DATE, lotId: LOT, recordIds: ['a'] });
+    expect(prisma.harvestRemission.create.mock.calls[0][0].data.productionOrderId).toBe('o1');
+  });
+
+  it('sin orden: se crea sin enlace (se enlazará al abrir/cerrar la orden)', async () => {
+    const { svc, prisma } = make({ loaded: [rec('a')] });
+    await svc.create(actor, TID, { date: DATE, lotId: LOT, recordIds: ['a'] });
+    expect(prisma.harvestRemission.create.mock.calls[0][0].data.productionOrderId).toBeNull();
+  });
+
+  it('con orden cerrada: no admite nuevas remisiones', async () => {
+    const { svc, prisma } = make({ loaded: [rec('a')], order: { id: 'o1', documentNumber: 'OP-1', status: 'PENDIENTE_ACEPTACION' } });
+    const p = svc.create(actor, TID, { date: DATE, lotId: LOT, recordIds: ['a'] });
+    await expect(p).rejects.toBeInstanceOf(ConflictException);
+    await expect(p).rejects.toThrow(/OP-1/);
+    expect(prisma.harvestRemission.create).not.toHaveBeenCalled();
   });
 });
 

@@ -394,6 +394,17 @@ export class HarvestRemissionsService {
     const lot = await this.aggregation.assertLot(tid, dto.lotId);
     const fecha = new Date(dto.date);
 
+    // Orden de producción de la finca y día: si está cerrada no admite más remisiones.
+    const order = await this.prisma.productionOrder.findFirst({
+      where: { tenantId: tid, farmId: lot.farmId, fecha, status: { not: 'ANULADA' } },
+      select: { id: true, documentNumber: true, status: true },
+    });
+    if (order && order.status !== 'ABIERTA') {
+      throw new ConflictException(
+        `La orden de producción ${order.documentNumber} de esta finca y fecha ya está cerrada: no admite nuevas remisiones hasta que se reabra.`,
+      );
+    }
+
     // Registros ya incluidos en otra remisión activa (exclusividad).
     const taken = await this.takenRecords(tid, fecha, dto.lotId);
 
@@ -447,6 +458,7 @@ export class HarvestRemissionsService {
             farmId: lot.farmId,
             lotId: dto.lotId,
             fecha,
+            productionOrderId: order?.id ?? null,
             sequenceNumber: seq.sequenceNumber,
             documentNumber: seq.documentNumber,
             status: 'PENDIENTE_RECEPCION',

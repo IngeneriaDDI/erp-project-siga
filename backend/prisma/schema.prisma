@@ -473,6 +473,8 @@ enum RemissionDetailStatus {
 }
 
 enum ProductionOrderStatus {
+  // Abierta al inicio del día: recibe remisiones; los totales se calculan al cerrar.
+  ABIERTA
   PENDIENTE_ACEPTACION
   ACEPTADA
   ANULADA
@@ -519,16 +521,20 @@ model HarvestRemission {
   receivedCanastillas Int?            @map("received_canastillas")
   updatedAt           DateTime        @updatedAt @map("updated_at")
   version             Int             @default(0)
+  // Orden de producción a la que pertenece (null si se creó antes de abrir la orden del día).
+  productionOrderId   String?         @map("production_order_id")
 
   details    HarvestRemissionDetail[]
   sources    HarvestRemissionSource[]
   orderLinks ProductionOrderRemission[]
+  order      ProductionOrder?         @relation("OrderRemissions", fields: [productionOrderId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, documentNumber])
   @@index([tenantId])
   @@index([tenantId, fecha])
   @@index([tenantId, farmId])
   @@index([status])
+  @@index([productionOrderId])
   @@map("harvest_remissions")
 }
 
@@ -602,7 +608,9 @@ model ProductionOrder {
   lotDetails        ProductionOrderLotDetail[]
   lotQualityDetails ProductionOrderLotQualityDetail[]
   sources           ProductionOrderSource[]
+  // Histórico (tabla de vínculos anterior); lo nuevo usa `remissions`.
   remissionLinks    ProductionOrderRemission[]
+  remissions        HarvestRemission[]         @relation("OrderRemissions")
 
   @@unique([tenantId, documentNumber])
   @@index([tenantId])
