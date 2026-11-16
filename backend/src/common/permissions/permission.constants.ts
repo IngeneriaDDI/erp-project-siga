@@ -13,6 +13,7 @@ export const PERMISSIONS = {
 
   HARVEST_REMISSIONS_VIEW: 'harvest.remissions.view',
   HARVEST_REMISSIONS_CREATE: 'harvest.remissions.create',
+  HARVEST_REMISSIONS_REOPEN: 'harvest.remissions.reopen',
 
   HARVEST_PRODUCTION_ORDERS_VIEW: 'harvest.production_orders.view',
   HARVEST_PRODUCTION_ORDERS_CREATE: 'harvest.production_orders.create',
@@ -63,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<Role, string[]> = {
     P.HARVEST_RECORDS_REVERT,
     P.HARVEST_REMISSIONS_VIEW,
     P.HARVEST_REMISSIONS_CREATE,
+    P.HARVEST_REMISSIONS_REOPEN,
     P.HARVEST_PRODUCTION_ORDERS_VIEW,
     P.HARVEST_PRODUCTION_ORDERS_CREATE,
     P.POSTHARVEST_REMISSIONS_VIEW,

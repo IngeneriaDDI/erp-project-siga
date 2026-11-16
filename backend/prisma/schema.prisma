@@ -474,6 +474,10 @@ model HarvestRemissionSource {
   pesoGramosSnapshot  Int      @map("peso_gramos_snapshot")
   canastillasSnapshot Int      @map("canastillas_snapshot")
   qualityIdSnapshot   String   @map("quality_id_snapshot")
+  // false cuando la remisión se anula: libera el registro para otra remisión.
+  // Un registro solo puede estar en UNA fuente activa: índice único PARCIAL
+  // (harvest_record_id WHERE active) creado en la migración (Prisma no lo modela).
+  active              Boolean  @default(true)
   createdAt           DateTime @default(now()) @map("created_at")
 
   remission HarvestRemission @relation(fields: [remissionId], references: [id], onDelete: Cascade)

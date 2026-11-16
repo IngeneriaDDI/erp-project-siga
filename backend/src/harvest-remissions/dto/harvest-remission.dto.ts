@@ -1,4 +1,8 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -18,12 +22,40 @@ export class RemissionPreviewQueryDto {
   lotId!: string;
 }
 
+// Consulta de candidatos; con remissionId se arma la edición de una remisión
+// reabierta (sus propios registros no cuentan como "ya remitidos").
+export class RemissionCandidatesQueryDto extends RemissionPreviewQueryDto {
+  @IsOptional()
+  @IsUUID()
+  remissionId?: string;
+}
+
+// Reabrir/recalcular: lista FINAL de registros de la remisión (añadir y quitar).
+export class ReopenRemissionDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  recordIds!: string[];
+}
+
 export class CreateRemissionDto {
   @IsDateString({}, { message: 'date inválida (YYYY-MM-DD)' })
   date!: string;
 
   @IsUUID()
   lotId!: string;
+
+  // Remisión parcial: registros elegidos. Si se omite, se incluyen TODOS los
+  // registros del lote y día que aún no están en otra remisión.
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  recordIds?: string[];
 }
 
 export class ListRemissionsQueryDto {
