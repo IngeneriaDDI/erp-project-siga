@@ -25,6 +25,11 @@ build/
 # Prisma
 backend/prisma/*.db
 
+# Respaldos de bases de datos (contienen datos reales: NUNCA al repositorio)
+backups/
+*.dump
+*.sql.gz
+
 # Logs
 *.log
 npm-debug.log*
