@@ -35,3 +35,13 @@ export const getOrder = (id: string) =>
 
 export const acceptOrder = (id: string) =>
   api.post<ProductionOrder>(`/production-orders/${id}/accept`).then((r) => r.data);
+
+// Reabrir (vuelve a ABIERTA), recalcular y corregir la fecha: no aplican a órdenes aceptadas.
+export const reopenOrder = (id: string) =>
+  api.post<ProductionOrder>(`/production-orders/${id}/reopen`).then((r) => r.data);
+
+export const recalculateOrder = (id: string) =>
+  api.post<ProductionOrder>(`/production-orders/${id}/recalculate`).then((r) => r.data);
+
+export const updateOrderDate = (id: string, date: string) =>
+  api.patch<ProductionOrder>(`/production-orders/${id}/date`, { date }).then((r) => r.data);
