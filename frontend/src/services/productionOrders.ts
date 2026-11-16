@@ -19,8 +19,13 @@ export interface OrderFilters {
 export const previewOrder = (params: { date: string; farmId: string }) =>
   api.get<OrderPreview>('/production-orders/preview', { params }).then((r) => r.data);
 
-export const createOrder = (body: { date: string; farmId: string }) =>
+// Abre la orden del día (sin totales).
+export const openOrder = (body: { date: string; farmId: string }) =>
   api.post<ProductionOrder>('/production-orders', body).then((r) => r.data);
+
+// "Cerrar y calcular": totales con todos los registros de la finca ese día.
+export const closeOrder = (id: string) =>
+  api.post<ProductionOrder>(`/production-orders/${id}/close`).then((r) => r.data);
 
 export const listOrders = (params?: OrderFilters) =>
   api.get<Paginated<ProductionOrder>>('/production-orders', { params }).then((r) => r.data);

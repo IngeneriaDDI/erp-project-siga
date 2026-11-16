@@ -54,7 +54,19 @@ export class ProductionOrdersController {
     @TenantId() tenantId: string | null,
     @Body() dto: CreateOrderDto,
   ) {
-    return this.service.create(actor, tenantId, dto);
+    // Abre la orden del día (sin totales).
+    return this.service.open(actor, tenantId, dto);
+  }
+
+  // "Cerrar y calcular": totales con TODOS los registros de la finca ese día.
+  @RequirePermissions(PERMISSIONS.HARVEST_PRODUCTION_ORDERS_CREATE)
+  @Post(':id/close')
+  close(
+    @CurrentUser() actor: AuthUser,
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.close(actor, tenantId, id);
   }
 
   // Aceptar/autorizar en postcosecha: permiso de aprobación.

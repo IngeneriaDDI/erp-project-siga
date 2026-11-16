@@ -197,7 +197,7 @@ export interface Paginated<T> {
 // -------------------- Documentos de cosecha --------------------
 
 export type RemissionStatus = 'PENDIENTE_RECEPCION' | 'RECIBIDA' | 'ANULADA';
-export type ProductionOrderStatus = 'PENDIENTE_ACEPTACION' | 'ACEPTADA' | 'ANULADA';
+export type ProductionOrderStatus = 'ABIERTA' | 'PENDIENTE_ACEPTACION' | 'ACEPTADA' | 'ANULADA';
 
 export interface QualityLine {
   qualityId: string;
@@ -311,6 +311,8 @@ export interface OrderPreview {
   byQuality: QualityLine[];
   byLot: LotLine[];
   yaExiste: { id: string; documentNumber: string; status: ProductionOrderStatus } | null;
+  /** Aviso informativo: cosechado ese día que aún no está en ninguna remisión. */
+  sinRemitir?: { registros: number; pesoGramos: number; canastillas: number };
 }
 
 export interface ProductionOrder {
@@ -335,7 +337,14 @@ export interface ProductionOrder {
   qualityDetails?: QualityLine[];
   lotDetails?: LotLine[];
   lotQualityDetails?: LotQualityLine[];
-  remisiones?: { id: string; documentNumber: string; status: RemissionStatus }[];
+  remisiones?: {
+    id: string;
+    documentNumber: string;
+    status: RemissionStatus;
+    lotNombre?: string | null;
+    totalPesoGramos?: number;
+    totalCanastillas?: number;
+  }[];
 }
 
 export interface DocumentSequence {
