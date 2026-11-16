@@ -25,7 +25,9 @@ import {
 import {
   CreateRemissionDto,
   ListRemissionsQueryDto,
+  RemissionCandidatesQueryDto,
   RemissionPreviewQueryDto,
+  ReopenRemissionDto,
 } from './dto/harvest-remission.dto';
 
 @Injectable()
@@ -81,11 +83,22 @@ export class HarvestRemissionsService {
   }
 
   /** Registros ya incluidos en una remisión ACTIVA (id registro → n.° de remisión). */
-  private async takenRecords(tid: string, fecha: Date, lotId: string): Promise<Map<string, string>> {
+  private async takenRecords(
+    tid: string,
+    fecha: Date,
+    lotId: string,
+    excludeRemissionId?: string,
+  ): Promise<Map<string, string>> {
     const rows = await this.prisma.harvestRemissionSource.findMany({
       where: {
         active: true,
-        remission: { tenantId: tid, fecha, lotId, status: { not: 'ANULADA' } },
+        remission: {
+          tenantId: tid,
+          fecha,
+          lotId,
+          status: { not: 'ANULADA' },
+          ...(excludeRemissionId ? { id: { not: excludeRemissionId } } : {}),
+        },
       },
       select: { harvestRecordId: true, remission: { select: { documentNumber: true } } },
     });
@@ -96,11 +109,24 @@ export class HarvestRemissionsService {
    * Registros de un lote y día para armar una remisión parcial: cada uno indica
    * si ya fue incluido en otra remisión.
    */
-  async candidates(tenantId: string | null, query: RemissionPreviewQueryDto) {
+  async candidates(tenantId: string | null, query: RemissionCandidatesQueryDto) {
     const tid = requireTenant(tenantId);
     const lot = await this.aggregation.assertLot(tid, query.lotId);
     const farm = await this.aggregation.assertFarm(tid, lot.farmId);
     const fecha = new Date(query.date);
+
+    // Edición de una remisión reabierta: sus registros y sus calidades ya recibidas.
+    const own = new Set<string>();
+    const frozenQualities = new Set<string>();
+    if (query.remissionId) {
+      const rem = await this.prisma.harvestRemission.findFirst({
+        where: { id: query.remissionId, tenantId: tid },
+        include: { details: true, sources: { where: { active: true } } },
+      });
+      if (!rem) throw new NotFoundException('Remisión no encontrada');
+      rem.sources.forEach((s) => own.add(s.harvestRecordId));
+      rem.details.filter((d) => d.status === 'RECIBIDA').forEach((d) => frozenQualities.add(d.qualityId));
+    }
 
     const [records, taken] = await Promise.all([
       this.prisma.harvestRecord.findMany({
@@ -116,7 +142,7 @@ export class HarvestRemissionsService {
           containers: { select: { unidades: true } },
         },
       }),
-      this.takenRecords(tid, fecha, query.lotId),
+      this.takenRecords(tid, fecha, query.lotId, query.remissionId),
     ]);
 
     const items = records.map((r) => {
@@ -133,6 +159,10 @@ export class HarvestRemissionsService {
         // Un registro sin peso o sin canastillas no se puede remitir.
         valido: r.gramosCosechados > 0 && canastillas > 0,
         remision: taken.get(r.id) ?? null,
+        // Solo con remissionId: ya está en la remisión que se edita.
+        enEstaRemision: own.has(r.id),
+        // Calidad ya recibida en la remisión editada: no se puede quitar ni añadir.
+        bloqueado: frozenQualities.has(r.qualityId),
       };
     });
 
@@ -141,8 +171,222 @@ export class HarvestRemissionsService {
       farm: { id: farm.id, nombre: farm.nombre },
       lot: { id: lot.id, nombreLote: lot.nombreLote },
       records: items,
-      pendientes: items.filter((i) => !i.remision && i.valido).length,
+      pendientes: items.filter((i) => !i.remision && i.valido && !i.enEstaRemision).length,
     };
+  }
+
+  /** N.° de registro (o id corto) para mensajes de error. */
+  private async recordLabels(tid: string, ids: string[]): Promise<string> {
+    const rows = await this.prisma.harvestRecord.findMany({
+      where: { tenantId: tid, id: { in: ids } },
+      select: { id: true, recordNumber: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r.recordNumber]));
+    return ids.map((id) => (byId.get(id) != null ? `#${byId.get(id)}` : id.slice(0, 8))).join(', ');
+  }
+
+  /**
+   * Reabre una remisión con calidades RECHAZADAS y la recalcula con la lista final
+   * de registros (se pueden añadir y quitar). Reglas:
+   * - Mismo consecutivo; nada se borra: el estado anterior queda en el historial.
+   * - Las calidades ya RECIBIDAS quedan congeladas (sus registros no se tocan).
+   * - Un registro ligado a otra remisión activa no se puede añadir.
+   * - Los valores (peso, canastillas, calidad) se vuelven a leer de cada registro.
+   */
+  async reopen(actor: AuthUser, tenantId: string | null, id: string, dto: ReopenRemissionDto) {
+    const tid = requireTenant(tenantId);
+    const remission = await this.prisma.harvestRemission.findFirst({
+      where: { id, tenantId: tid },
+      include: { details: true, sources: { where: { active: true } } },
+    });
+    if (!remission) throw new NotFoundException('Remisión no encontrada');
+    if (remission.status === 'ANULADA') throw new ConflictException('La remisión está anulada');
+    if (!remission.details.some((d) => d.status === 'RECHAZADA')) {
+      throw new ConflictException(
+        'Solo se puede reabrir una remisión con calidades rechazadas. Las remisiones recibidas o aceptadas no se pueden modificar.',
+      );
+    }
+
+    const frozenQualities = new Set(
+      remission.details.filter((d) => d.status === 'RECIBIDA').map((d) => d.qualityId),
+    );
+    const frozenSources = remission.sources.filter((s) => frozenQualities.has(s.qualityIdSnapshot));
+    const frozenIds = new Set(frozenSources.map((s) => s.harvestRecordId));
+    const wanted = new Set(dto.recordIds);
+
+    const removedFrozen = [...frozenIds].filter((rid) => !wanted.has(rid));
+    if (removedFrozen.length > 0) {
+      throw new BadRequestException(
+        `No se pueden quitar registros de calidades ya recibidas (${await this.recordLabels(tid, removedFrozen)}).`,
+      );
+    }
+
+    // Exclusividad: registros ligados a OTRA remisión activa.
+    const taken = await this.takenRecords(tid, remission.fecha, remission.lotId, id);
+    const clash = dto.recordIds.filter((rid) => taken.has(rid));
+    if (clash.length > 0) {
+      const labels = await this.recordLabels(tid, clash);
+      const docs = [...new Set(clash.map((rid) => taken.get(rid)))].join(', ');
+      throw new ConflictException(
+        `No es posible añadir ${labels}: ya está ligado a la remisión ${docs}. Edita esa remisión para liberarlo.`,
+      );
+    }
+
+    // Los registros congelados conservan su snapshot; el resto se relee.
+    const editableIds = dto.recordIds.filter((rid) => !frozenIds.has(rid));
+    const records =
+      editableIds.length > 0
+        ? await this.aggregation.loadValidRecords(tid, {
+            fecha: remission.fecha,
+            lotId: remission.lotId,
+            ids: editableIds,
+          })
+        : [];
+    if (records.length !== editableIds.length) {
+      throw new BadRequestException(
+        'Algunos registros no existen, están anulados, incompletos o no pertenecen al lote y la fecha de la remisión',
+      );
+    }
+    const frozenClash = records.filter((r) => frozenQualities.has(r.qualityId));
+    if (frozenClash.length > 0) {
+      throw new BadRequestException(
+        `No es posible añadir ${await this.recordLabels(tid, frozenClash.map((r) => r.id))}: su calidad ya fue recibida en esta remisión.`,
+      );
+    }
+    if (records.length === 0 && frozenSources.length === 0) {
+      throw new BadRequestException('La remisión debe conservar al menos un registro');
+    }
+
+    const agg = aggregateHarvestRecords(records);
+    const frozenDetails = remission.details.filter((d) => d.status === 'RECIBIDA');
+    const frozenPeso = frozenDetails.reduce((a, d) => a + d.pesoGramos, 0);
+    const frozenCan = frozenDetails.reduce((a, d) => a + d.canastillas, 0);
+    const totalPeso = frozenPeso + agg.totalPesoGramos;
+    const totalCan = frozenCan + agg.totalCanastillas;
+    const hasPending = agg.byQuality.length > 0;
+
+    const eff = await this.identity.resolveEffectiveActor(actor);
+    const previous = {
+      status: remission.status,
+      totalPesoGramos: remission.totalPesoGramos,
+      totalCanastillas: remission.totalCanastillas,
+      registrosIncluidos: remission.registrosIncluidos,
+      details: remission.details.map((d) => ({
+        qualityId: d.qualityId,
+        pesoGramos: d.pesoGramos,
+        canastillas: d.canastillas,
+        status: d.status,
+      })),
+      recordIds: remission.sources.map((s) => s.harvestRecordId),
+    };
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.harvestRemissionSource.findMany({ where: { remissionId: id } });
+        const byRecord = new Map(existing.map((s) => [s.harvestRecordId, s]));
+
+        // 1) Liberar los registros quitados (editables y activos que ya no se piden).
+        const toRelease = remission.sources
+          .filter((s) => !frozenIds.has(s.harvestRecordId) && !wanted.has(s.harvestRecordId))
+          .map((s) => s.id);
+        if (toRelease.length > 0) {
+          await tx.harvestRemissionSource.updateMany({
+            where: { id: { in: toRelease } },
+            data: { active: false },
+          });
+        }
+
+        // 2) Reactivar/crear y refrescar snapshots de los registros pedidos.
+        for (const r of records) {
+          const snap = {
+            pesoGramosSnapshot: r.pesoGramos,
+            canastillasSnapshot: r.canastillas,
+            qualityIdSnapshot: r.qualityId,
+          };
+          const prev = byRecord.get(r.id);
+          if (prev) {
+            await tx.harvestRemissionSource.update({ where: { id: prev.id }, data: { ...snap, active: true } });
+          } else {
+            await tx.harvestRemissionSource.create({
+              data: { remissionId: id, harvestRecordId: r.id, ...snap },
+            });
+          }
+        }
+
+        // 3) Detalle por calidad: se conservan las RECIBIDAS; el resto se regenera PENDIENTE.
+        await tx.harvestRemissionDetail.deleteMany({
+          where: { remissionId: id, status: { not: 'RECIBIDA' } },
+        });
+        if (hasPending) {
+          await tx.harvestRemissionDetail.createMany({
+            data: agg.byQuality.map((q) => ({
+              remissionId: id,
+              qualityId: q.qualityId,
+              pesoGramos: q.pesoGramos,
+              canastillas: q.canastillas,
+            })),
+          });
+        }
+
+        // 4) Cabecera.
+        const first = frozenDetails[0];
+        await tx.harvestRemission.update({
+          where: { id },
+          data: {
+            totalPesoGramos: totalPeso,
+            totalCanastillas: totalCan,
+            registrosIncluidos: frozenSources.length + records.length,
+            version: { increment: 1 },
+            ...(hasPending
+              ? {
+                  status: 'PENDIENTE_RECEPCION',
+                  receivedBy: null,
+                  receivedByWorkerId: null,
+                  receivedByActorName: null,
+                  receivedAt: null,
+                  receivedPesoGramos: null,
+                  receivedCanastillas: null,
+                }
+              : {
+                  // Solo quedan calidades recibidas: la remisión se cierra con ellas.
+                  status: 'RECIBIDA',
+                  receivedBy: remission.receivedBy ?? first?.receivedBy ?? null,
+                  receivedAt: remission.receivedAt ?? first?.receivedAt ?? new Date(),
+                  receivedPesoGramos: frozenPeso,
+                  receivedCanastillas: frozenCan,
+                }),
+          },
+        });
+
+        await this.events.record(tx, {
+          tenantId: tid,
+          documentType: 'REMISSION',
+          documentId: id,
+          event: 'STATUS_CHANGE',
+          userId: actor.userId,
+          previousStatus: remission.status,
+          newStatus: hasPending ? 'PENDIENTE_RECEPCION' : 'RECIBIDA',
+          metadata: {
+            action: 'reopen_recalculate',
+            actor: eff.displayName,
+            previous,
+            next: {
+              totalPesoGramos: totalPeso,
+              totalCanastillas: totalCan,
+              recordIds: [...frozenIds, ...records.map((r) => r.id)],
+            },
+          },
+        });
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(
+          'Alguno de los registros acaba de ser incluido en otra remisión. Vuelve a consultar.',
+        );
+      }
+      throw e;
+    }
+    return this.findOne(tenantId, id);
   }
 
   async create(actor: AuthUser, tenantId: string | null, dto: CreateRemissionDto) {

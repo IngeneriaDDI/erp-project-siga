@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, PackageCheck, X } from 'lucide-react';
+import { ArrowLeft, Check, PackageCheck, RotateCcw, X } from 'lucide-react';
+import { ReopenRemissionModal } from '../components/ReopenRemissionModal';
 import { useAuth } from '../context/AuthContext';
 import { useAsyncData } from '../hooks/useAsyncData';
 import {
@@ -45,6 +46,8 @@ export default function RemissionDetailPage() {
   const { hasPermission, weightUnit } = useAuth();
   const canApprove = hasPermission(PERMS.POSTHARVEST_REMISSIONS_APPROVE);
   const canReject = hasPermission(PERMS.POSTHARVEST_REMISSIONS_REJECT);
+  const canReopen = hasPermission(PERMS.HARVEST_REMISSIONS_REOPEN);
+  const [reopenOpen, setReopenOpen] = useState(false);
   const fmtW = (g: number) => formatWeight(g, weightUnit);
 
   const { data: rem, loading, error, reload } = useAsyncData(() => getRemission(id as string), [id]);
@@ -89,6 +92,7 @@ export default function RemissionDetailPage() {
   if (!rem) return <Alert>Remisión no encontrada</Alert>;
 
   const hayPendientes = (rem.details ?? []).some((d) => d.status === 'PENDIENTE_RECEPCION');
+  const hayRechazadas = (rem.details ?? []).some((d) => d.status === 'RECHAZADA');
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -101,6 +105,11 @@ export default function RemissionDetailPage() {
           <Button variant="secondary" leftIcon={<ArrowLeft size={16} />} onClick={() => navigate('/harvest-remissions')}>
             Volver
           </Button>
+          {canReopen && hayRechazadas && rem.status !== 'ANULADA' && (
+            <Button variant="secondary" leftIcon={<RotateCcw size={16} />} onClick={() => setReopenOpen(true)}>
+              Reabrir y recalcular
+            </Button>
+          )}
           {canApprove && hayPendientes && (
             <Button leftIcon={<PackageCheck size={16} />} onClick={() => setConfirmOpen(true)}>
               Recibir todo lo pendiente
@@ -168,6 +177,16 @@ export default function RemissionDetailPage() {
           ]}
         />
       </div>
+
+      <ReopenRemissionModal
+        remission={rem}
+        open={reopenOpen}
+        onClose={() => setReopenOpen(false)}
+        onDone={() => {
+          setReopenOpen(false);
+          reload();
+        }}
+      />
 
       <Modal
         open={confirmOpen}

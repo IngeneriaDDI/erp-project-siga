@@ -260,6 +260,10 @@ export interface RemissionCandidate {
   valido: boolean;
   /** N.° de la remisión activa que ya lo incluye (null = pendiente). */
   remision: string | null;
+  /** Solo al editar una remisión reabierta: ya pertenece a ella. */
+  enEstaRemision?: boolean;
+  /** Calidad ya recibida en la remisión editada: no se puede quitar ni añadir. */
+  bloqueado?: boolean;
 }
 
 export interface RemissionCandidates {
