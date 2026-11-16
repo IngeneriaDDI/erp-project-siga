@@ -3,7 +3,9 @@ import { HarvestRemissionsService } from './harvest-remissions.service';
 import {
   CreateRemissionDto,
   ListRemissionsQueryDto,
+  RemissionCandidatesQueryDto,
   RemissionPreviewQueryDto,
+  ReopenRemissionDto,
 } from './dto/harvest-remission.dto';
 import {
   RequirePermissions,
@@ -36,6 +38,13 @@ export class HarvestRemissionsController {
     return this.service.preview(tenantId, query);
   }
 
+  // Registros del lote y día disponibles para una remisión parcial.
+  @RequireAnyPermissions(PERMISSIONS.HARVEST_REMISSIONS_CREATE, PERMISSIONS.HARVEST_REMISSIONS_REOPEN)
+  @Get('candidates')
+  candidates(@TenantId() tenantId: string | null, @Query() query: RemissionCandidatesQueryDto) {
+    return this.service.candidates(tenantId, query);
+  }
+
   @RequireAnyPermissions(...VIEW_REMISSIONS)
   @Get()
   list(@TenantId() tenantId: string | null, @Query() query: ListRemissionsQueryDto) {
@@ -57,6 +66,18 @@ export class HarvestRemissionsController {
     @Body() dto: CreateRemissionDto,
   ) {
     return this.service.create(actor, tenantId, dto);
+  }
+
+  // Reabrir una remisión con calidades rechazadas y recalcularla (añadir/quitar registros).
+  @RequirePermissions(PERMISSIONS.HARVEST_REMISSIONS_REOPEN)
+  @Post(':id/reopen')
+  reopen(
+    @CurrentUser() actor: AuthUser,
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+    @Body() dto: ReopenRemissionDto,
+  ) {
+    return this.service.reopen(actor, tenantId, id, dto);
   }
 
   // Recibir/autorizar en postcosecha: permiso de aprobación.

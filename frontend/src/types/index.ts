@@ -265,8 +265,37 @@ export interface RemissionPreview {
   yaExiste: { id: string; documentNumber: string; status: RemissionStatus } | null;
 }
 
+/** Registro disponible para una remisión parcial. */
+export interface RemissionCandidate {
+  id: string;
+  recordNumber: number | null;
+  workerCodigo: string;
+  workerNombre: string;
+  qualityId: string;
+  qualityNombre: string;
+  pesoGramos: number;
+  canastillas: number;
+  valido: boolean;
+  /** N.° de la remisión activa que ya lo incluye (null = pendiente). */
+  remision: string | null;
+  /** Solo al editar una remisión reabierta: ya pertenece a ella. */
+  enEstaRemision?: boolean;
+  /** Calidad ya recibida en la remisión editada: no se puede quitar ni añadir. */
+  bloqueado?: boolean;
+}
+
+export interface RemissionCandidates {
+  fecha: string;
+  farm: { id: string; nombre: string };
+  lot: { id: string; nombreLote: string };
+  records: RemissionCandidate[];
+  pendientes: number;
+}
+
 export interface Remission {
   id: string;
+  /** Rango de N.° de registro incluidos, p. ej. "#1580–1620". */
+  registrosRango?: string;
   documentNumber: string;
   sequenceNumber: number;
   fecha: string;
