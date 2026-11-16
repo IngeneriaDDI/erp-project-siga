@@ -26,6 +26,11 @@ export class CreateOrderDto {
   farmId!: string;
 }
 
+export class UpdateOrderDateDto {
+  @IsDateString({}, { message: 'date inválida (YYYY-MM-DD)' })
+  date!: string;
+}
+
 export class ListOrdersQueryDto {
   @IsOptional()
   @IsDateString()

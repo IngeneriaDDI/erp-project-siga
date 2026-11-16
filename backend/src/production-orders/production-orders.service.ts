@@ -23,6 +23,7 @@ import {
   CreateOrderDto,
   ListOrdersQueryDto,
   OrderPreviewQueryDto,
+  UpdateOrderDateDto,
 } from './dto/production-order.dto';
 
 @Injectable()
@@ -187,19 +188,8 @@ export class ProductionOrdersService {
     }
   }
 
-  /**
-   * "Cerrar y calcular": toma TODOS los registros de cosecha de la finca en la fecha
-   * (estén remitidos o no) y calcula los totales. La orden pasa a pendiente de aceptación
-   * y deja de recibir remisiones.
-   */
-  async close(actor: AuthUser, tenantId: string | null, id: string) {
-    const tid = requireTenant(tenantId);
-    const order = await this.prisma.productionOrder.findFirst({ where: { id, tenantId: tid } });
-    if (!order) throw new NotFoundException('Orden de producción no encontrada');
-    if (order.status !== 'ABIERTA') {
-      throw new ConflictException('Solo se puede cerrar y calcular una orden abierta');
-    }
-
+  /** Calcula totales y desglose con TODOS los registros de la finca y fecha de la orden. */
+  private async calculate(tid: string, order: { farmId: string; fecha: Date }) {
     const records = await this.aggregation.loadValidRecords(tid, {
       fecha: order.fecha,
       farmId: order.farmId,
@@ -215,59 +205,112 @@ export class ProductionOrdersService {
       throw new InternalServerErrorException('Los totales calculados no coinciden');
     }
     const sinRemitir = await this.unremitted(tid, records);
+    return { records, agg, sinRemitir };
+  }
+
+  /** Borra el cálculo de la orden (detalles y fuentes). */
+  private async clearCalculation(tx: Prisma.TransactionClient, id: string) {
+    await tx.productionOrderQualityDetail.deleteMany({ where: { productionOrderId: id } });
+    await tx.productionOrderLotDetail.deleteMany({ where: { productionOrderId: id } });
+    await tx.productionOrderLotQualityDetail.deleteMany({ where: { productionOrderId: id } });
+    await tx.productionOrderSource.deleteMany({ where: { productionOrderId: id } });
+  }
+
+  /** Escribe el cálculo y deja la orden pendiente de aceptación (si estaba en `from`). */
+  private async writeCalculation(
+    tx: Prisma.TransactionClient,
+    tid: string,
+    id: string,
+    from: 'ABIERTA' | 'PENDIENTE_ACEPTACION',
+    calc: Awaited<ReturnType<ProductionOrdersService['calculate']>>,
+  ) {
+    const { agg, records } = calc;
+    // Cambio atómico: solo si sigue en el estado esperado (evita cierres simultáneos).
+    const updated = await tx.productionOrder.updateMany({
+      where: { id, tenantId: tid, status: from },
+      data: {
+        status: 'PENDIENTE_ACEPTACION',
+        totalPesoGramos: agg.totalPesoGramos,
+        totalCanastillas: agg.totalCanastillas,
+        lotesIncluidos: agg.byLot.length,
+        registrosIncluidos: agg.registrosIncluidos,
+        version: { increment: 1 },
+      },
+    });
+    if (updated.count === 0) throw new ConflictException('La orden cambió de estado; vuelve a consultar');
+
+    await tx.productionOrderQualityDetail.createMany({
+      data: agg.byQuality.map((q) => ({
+        productionOrderId: id,
+        qualityId: q.qualityId,
+        pesoGramos: q.pesoGramos,
+        canastillas: q.canastillas,
+      })),
+    });
+    await tx.productionOrderLotDetail.createMany({
+      data: agg.byLot.map((l) => ({
+        productionOrderId: id,
+        lotId: l.lotId,
+        pesoGramos: l.pesoGramos,
+        canastillas: l.canastillas,
+      })),
+    });
+    // Base granular: una fila por (lote, calidad).
+    await tx.productionOrderLotQualityDetail.createMany({
+      data: agg.byLotQuality.map((x) => ({
+        productionOrderId: id,
+        lotId: x.lotId,
+        qualityId: x.qualityId,
+        pesoGramos: x.pesoGramos,
+        canastillas: x.canastillas,
+      })),
+    });
+    await tx.productionOrderSource.createMany({
+      data: records.map((r) => ({
+        productionOrderId: id,
+        harvestRecordId: r.id,
+        pesoGramosSnapshot: r.pesoGramos,
+        canastillasSnapshot: r.canastillas,
+        lotIdSnapshot: r.lotId,
+        qualityIdSnapshot: r.qualityId,
+      })),
+    });
+  }
+
+  /** Estado resumido para guardar en el historial antes de modificar la orden. */
+  private snapshot(order: ProductionOrder) {
+    return {
+      status: order.status,
+      fecha: order.fecha.toISOString().slice(0, 10),
+      totalPesoGramos: order.totalPesoGramos,
+      totalCanastillas: order.totalCanastillas,
+      lotesIncluidos: order.lotesIncluidos,
+      registrosIncluidos: order.registrosIncluidos,
+    };
+  }
+
+  private async getOrderOrFail(tid: string, id: string) {
+    const order = await this.prisma.productionOrder.findFirst({ where: { id, tenantId: tid } });
+    if (!order) throw new NotFoundException('Orden de producción no encontrada');
+    return order;
+  }
+
+  /**
+   * "Cerrar y calcular": toma TODOS los registros de cosecha de la finca en la fecha
+   * (estén remitidos o no) y calcula los totales. La orden pasa a pendiente de aceptación
+   * y deja de recibir remisiones.
+   */
+  async close(actor: AuthUser, tenantId: string | null, id: string) {
+    const tid = requireTenant(tenantId);
+    const order = await this.getOrderOrFail(tid, id);
+    if (order.status !== 'ABIERTA') {
+      throw new ConflictException('Solo se puede cerrar y calcular una orden abierta');
+    }
+    const calc = await this.calculate(tid, order);
     await this.identity.resolveEffectiveActor(actor);
 
     await this.prisma.$transaction(async (tx) => {
-      // Cierre atómico: solo si sigue ABIERTA (evita dos cierres simultáneos).
-      const updated = await tx.productionOrder.updateMany({
-        where: { id, tenantId: tid, status: 'ABIERTA' },
-        data: {
-          status: 'PENDIENTE_ACEPTACION',
-          totalPesoGramos: agg.totalPesoGramos,
-          totalCanastillas: agg.totalCanastillas,
-          lotesIncluidos: agg.byLot.length,
-          registrosIncluidos: agg.registrosIncluidos,
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count === 0) throw new ConflictException('La orden ya fue cerrada');
-
-      await tx.productionOrderQualityDetail.createMany({
-        data: agg.byQuality.map((q) => ({
-          productionOrderId: id,
-          qualityId: q.qualityId,
-          pesoGramos: q.pesoGramos,
-          canastillas: q.canastillas,
-        })),
-      });
-      await tx.productionOrderLotDetail.createMany({
-        data: agg.byLot.map((l) => ({
-          productionOrderId: id,
-          lotId: l.lotId,
-          pesoGramos: l.pesoGramos,
-          canastillas: l.canastillas,
-        })),
-      });
-      // Base granular: una fila por (lote, calidad).
-      await tx.productionOrderLotQualityDetail.createMany({
-        data: agg.byLotQuality.map((x) => ({
-          productionOrderId: id,
-          lotId: x.lotId,
-          qualityId: x.qualityId,
-          pesoGramos: x.pesoGramos,
-          canastillas: x.canastillas,
-        })),
-      });
-      await tx.productionOrderSource.createMany({
-        data: records.map((r) => ({
-          productionOrderId: id,
-          harvestRecordId: r.id,
-          pesoGramosSnapshot: r.pesoGramos,
-          canastillasSnapshot: r.canastillas,
-          lotIdSnapshot: r.lotId,
-          qualityIdSnapshot: r.qualityId,
-        })),
-      });
+      await this.writeCalculation(tx, tid, id, 'ABIERTA', calc);
       // Remisiones del día que aún no estaban enlazadas.
       await tx.harvestRemission.updateMany({
         where: {
@@ -289,13 +332,194 @@ export class ProductionOrdersService {
         newStatus: 'PENDIENTE_ACEPTACION',
         metadata: {
           action: 'close_calculate',
-          totalPesoGramos: agg.totalPesoGramos,
-          totalCanastillas: agg.totalCanastillas,
-          registros: agg.registrosIncluidos,
-          sinRemitir,
+          totalPesoGramos: calc.agg.totalPesoGramos,
+          totalCanastillas: calc.agg.totalCanastillas,
+          registros: calc.agg.registrosIncluidos,
+          sinRemitir: calc.sinRemitir,
         },
       });
     });
+    return this.findOne(tenantId, id);
+  }
+
+  /**
+   * Recalcula una orden PENDIENTE de aceptación con los registros actuales
+   * (p. ej. después de corregir una remisión o un registro). Mismo consecutivo.
+   */
+  async recalculate(actor: AuthUser, tenantId: string | null, id: string) {
+    const tid = requireTenant(tenantId);
+    const order = await this.getOrderOrFail(tid, id);
+    if (order.status !== 'PENDIENTE_ACEPTACION') {
+      throw new ConflictException(
+        order.status === 'ACEPTADA'
+          ? 'La orden ya fue aceptada y no se puede modificar'
+          : 'Solo se puede recalcular una orden cerrada pendiente de aceptación',
+      );
+    }
+    const calc = await this.calculate(tid, order);
+    await this.identity.resolveEffectiveActor(actor);
+    const previous = this.snapshot(order);
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.clearCalculation(tx, id);
+      await this.writeCalculation(tx, tid, id, 'PENDIENTE_ACEPTACION', calc);
+      await this.events.record(tx, {
+        tenantId: tid,
+        documentType: 'PRODUCTION_ORDER',
+        documentId: id,
+        event: 'STATUS_CHANGE',
+        userId: actor.userId,
+        previousStatus: 'PENDIENTE_ACEPTACION',
+        newStatus: 'PENDIENTE_ACEPTACION',
+        metadata: {
+          action: 'recalculate',
+          previous,
+          next: {
+            totalPesoGramos: calc.agg.totalPesoGramos,
+            totalCanastillas: calc.agg.totalCanastillas,
+            registros: calc.agg.registrosIncluidos,
+          },
+          sinRemitir: calc.sinRemitir,
+        },
+      });
+    });
+    return this.findOne(tenantId, id);
+  }
+
+  /**
+   * Reabre una orden PENDIENTE de aceptación: vuelve a ABIERTA (recibe remisiones) y se
+   * descarta el cálculo; se vuelve a calcular al cerrar. Mismo consecutivo. Una orden
+   * aceptada no se puede reabrir.
+   */
+  async reopen(actor: AuthUser, tenantId: string | null, id: string) {
+    const tid = requireTenant(tenantId);
+    const order = await this.getOrderOrFail(tid, id);
+    if (order.status !== 'PENDIENTE_ACEPTACION') {
+      throw new ConflictException(
+        order.status === 'ACEPTADA'
+          ? 'La orden ya fue aceptada y no se puede reabrir'
+          : order.status === 'ABIERTA'
+            ? 'La orden ya está abierta'
+            : 'La orden está anulada',
+      );
+    }
+    await this.identity.resolveEffectiveActor(actor);
+    const previous = this.snapshot(order);
+
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.productionOrder.updateMany({
+        where: { id, tenantId: tid, status: 'PENDIENTE_ACEPTACION' },
+        data: {
+          status: 'ABIERTA',
+          totalPesoGramos: 0,
+          totalCanastillas: 0,
+          lotesIncluidos: 0,
+          registrosIncluidos: 0,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) throw new ConflictException('La orden cambió de estado; vuelve a consultar');
+      await this.clearCalculation(tx, id);
+      await this.events.record(tx, {
+        tenantId: tid,
+        documentType: 'PRODUCTION_ORDER',
+        documentId: id,
+        event: 'STATUS_CHANGE',
+        userId: actor.userId,
+        previousStatus: 'PENDIENTE_ACEPTACION',
+        newStatus: 'ABIERTA',
+        metadata: { action: 'reopen', previous },
+      });
+    });
+    return this.findOne(tenantId, id);
+  }
+
+  /**
+   * Corrige la fecha de la orden (abierta o pendiente de aceptación). Las remisiones
+   * enlazadas conservan su fecha real y se desenlazan; se enlazan las remisiones de la
+   * nueva fecha. La orden queda ABIERTA y se recalcula al cerrar.
+   */
+  async updateDate(actor: AuthUser, tenantId: string | null, id: string, dto: UpdateOrderDateDto) {
+    const tid = requireTenant(tenantId);
+    const order = await this.getOrderOrFail(tid, id);
+    if (order.status !== 'ABIERTA' && order.status !== 'PENDIENTE_ACEPTACION') {
+      throw new ConflictException(
+        order.status === 'ACEPTADA'
+          ? 'La orden ya fue aceptada y no se puede modificar'
+          : 'La orden está anulada',
+      );
+    }
+    const fecha = new Date(dto.date);
+    if (fecha.getTime() === order.fecha.getTime()) {
+      throw new BadRequestException('La fecha indicada es la misma que ya tiene la orden');
+    }
+    const clash = await this.prisma.productionOrder.findFirst({
+      where: { tenantId: tid, farmId: order.farmId, fecha, status: { not: 'ANULADA' }, id: { not: id } },
+      select: { documentNumber: true },
+    });
+    if (clash) {
+      throw new ConflictException(
+        `Ya existe la orden ${clash.documentNumber} para esa finca y fecha`,
+      );
+    }
+    await this.identity.resolveEffectiveActor(actor);
+    const previous = this.snapshot(order);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.productionOrder.updateMany({
+          where: { id, tenantId: tid, status: { in: ['ABIERTA', 'PENDIENTE_ACEPTACION'] } },
+          data: {
+            fecha,
+            status: 'ABIERTA',
+            totalPesoGramos: 0,
+            totalCanastillas: 0,
+            lotesIncluidos: 0,
+            registrosIncluidos: 0,
+            version: { increment: 1 },
+          },
+        });
+        if (updated.count === 0) throw new ConflictException('La orden cambió de estado; vuelve a consultar');
+        await this.clearCalculation(tx, id);
+        // Las remisiones conservan su fecha de cosecha: se desenlazan de esta orden...
+        const unlinked = await tx.harvestRemission.updateMany({
+          where: { tenantId: tid, productionOrderId: id },
+          data: { productionOrderId: null },
+        });
+        // ...y se enlazan las de la nueva fecha que aún no tenían orden.
+        const adopted = await tx.harvestRemission.updateMany({
+          where: {
+            tenantId: tid,
+            farmId: order.farmId,
+            fecha,
+            status: { not: 'ANULADA' },
+            productionOrderId: null,
+          },
+          data: { productionOrderId: id },
+        });
+        await this.events.record(tx, {
+          tenantId: tid,
+          documentType: 'PRODUCTION_ORDER',
+          documentId: id,
+          event: 'STATUS_CHANGE',
+          userId: actor.userId,
+          previousStatus: order.status,
+          newStatus: 'ABIERTA',
+          metadata: {
+            action: 'update_date',
+            previous,
+            nuevaFecha: dto.date,
+            remisionesDesenlazadas: unlinked.count,
+            remisionesEnlazadas: adopted.count,
+          },
+        });
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Ya existe una orden de producción para esa finca y fecha');
+      }
+      throw e;
+    }
     return this.findOne(tenantId, id);
   }
 

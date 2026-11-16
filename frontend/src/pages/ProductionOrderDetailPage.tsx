@@ -1,9 +1,18 @@
 import { ReactNode, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Calculator } from 'lucide-react';
+import { ArrowLeft, CalendarDays, CheckCircle2, Calculator, RefreshCw, RotateCcw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAsyncData } from '../hooks/useAsyncData';
-import { acceptOrder, closeOrder, getOrder, previewOrder } from '../services/productionOrders';
+import {
+  acceptOrder,
+  closeOrder,
+  getOrder,
+  previewOrder,
+  recalculateOrder,
+  reopenOrder,
+  updateOrderDate,
+} from '../services/productionOrders';
+import { Input } from '../components/ui/Input';
 import { getApiErrorMessage } from '../lib/api';
 import { formatWeight } from '../lib/weight';
 import { PERMS } from '../lib/permissions';
@@ -35,6 +44,26 @@ export default function ProductionOrderDetailPage() {
   const { hasPermission, weightUnit } = useAuth();
   const canAccept = hasPermission(PERMS.POSTHARVEST_PRODUCTION_ORDERS_APPROVE);
   const canClose = hasPermission(PERMS.HARVEST_PRODUCTION_ORDERS_CREATE);
+  const canReopen = hasPermission(PERMS.HARVEST_PRODUCTION_ORDERS_REOPEN);
+  const [dateOpen, setDateOpen] = useState(false);
+  const [newDate, setNewDate] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Reabrir / recalcular / corregir fecha: mismo consecutivo, nunca sobre órdenes aceptadas.
+  const runAction = async (fn: () => Promise<unknown>, after?: () => void) => {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await fn();
+      after?.();
+      reload();
+    } catch (e) {
+      setActionError(getApiErrorMessage(e));
+      after?.();
+    } finally {
+      setBusy(false);
+    }
+  };
   const fmtW = (g: number) => formatWeight(g, weightUnit);
 
   const { data: order, loading, error, reload } = useAsyncData(() => getOrder(id as string), [id]);
@@ -110,6 +139,39 @@ export default function ProductionOrderDetailPage() {
           <Button variant="secondary" leftIcon={<ArrowLeft size={16} />} onClick={() => navigate('/production-orders')}>
             Volver
           </Button>
+          {canReopen && (order.status === 'ABIERTA' || order.status === 'PENDIENTE_ACEPTACION') && (
+            <Button
+              variant="secondary"
+              leftIcon={<CalendarDays size={16} />}
+              disabled={busy}
+              onClick={() => {
+                setNewDate(order.fecha.slice(0, 10));
+                setDateOpen(true);
+              }}
+            >
+              Corregir fecha
+            </Button>
+          )}
+          {canReopen && order.status === 'PENDIENTE_ACEPTACION' && (
+            <>
+              <Button
+                variant="secondary"
+                leftIcon={<RefreshCw size={16} />}
+                disabled={busy}
+                onClick={() => runAction(() => recalculateOrder(order.id))}
+              >
+                Recalcular
+              </Button>
+              <Button
+                variant="secondary"
+                leftIcon={<RotateCcw size={16} />}
+                disabled={busy}
+                onClick={() => runAction(() => reopenOrder(order.id))}
+              >
+                Reabrir
+              </Button>
+            </>
+          )}
           {canClose && order.status === 'ABIERTA' && (
             <Button leftIcon={<Calculator size={16} />} onClick={openClose}>
               Cerrar y calcular
@@ -224,6 +286,32 @@ export default function ProductionOrderDetailPage() {
           ]}
         />
       </div>
+
+      <Modal
+        open={dateOpen}
+        onClose={() => setDateOpen(false)}
+        title="Corregir fecha de la orden"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDateOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={busy || !newDate || newDate === order.fecha.slice(0, 10)}
+              onClick={() => runAction(() => updateOrderDate(order.id, newDate), () => setDateOpen(false))}
+            >
+              {busy ? 'Guardando…' : 'Guardar fecha'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-content">
+          <Input label="Nueva fecha" type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+          <p className="text-muted">
+            Se conserva el consecutivo. Las remisiones enlazadas conservan su fecha real y se desenlazan; se
+            enlazan las de la nueva fecha. La orden queda <span className="font-medium text-content">abierta</span>{' '}
+            y se vuelve a calcular al cerrarla.
+          </p>
+        </div>
+      </Modal>
 
       <Modal
         open={closeOpen}
