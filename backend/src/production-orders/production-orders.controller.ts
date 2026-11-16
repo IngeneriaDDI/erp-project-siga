@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ProductionOrdersService } from './production-orders.service';
 import {
   CreateOrderDto,
   ListOrdersQueryDto,
   OrderPreviewQueryDto,
+  UpdateOrderDateDto,
 } from './dto/production-order.dto';
 import {
   RequirePermissions,
@@ -67,6 +68,38 @@ export class ProductionOrdersController {
     @Param('id') id: string,
   ) {
     return this.service.close(actor, tenantId, id);
+  }
+
+  // Reabrir, recalcular y corregir la fecha de una orden (nunca si ya fue aceptada).
+  @RequirePermissions(PERMISSIONS.HARVEST_PRODUCTION_ORDERS_REOPEN)
+  @Post(':id/reopen')
+  reopen(
+    @CurrentUser() actor: AuthUser,
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.reopen(actor, tenantId, id);
+  }
+
+  @RequirePermissions(PERMISSIONS.HARVEST_PRODUCTION_ORDERS_REOPEN)
+  @Post(':id/recalculate')
+  recalculate(
+    @CurrentUser() actor: AuthUser,
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.recalculate(actor, tenantId, id);
+  }
+
+  @RequirePermissions(PERMISSIONS.HARVEST_PRODUCTION_ORDERS_REOPEN)
+  @Patch(':id/date')
+  updateDate(
+    @CurrentUser() actor: AuthUser,
+    @TenantId() tenantId: string | null,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderDateDto,
+  ) {
+    return this.service.updateDate(actor, tenantId, id, dto);
   }
 
   // Aceptar/autorizar en postcosecha: permiso de aprobación.

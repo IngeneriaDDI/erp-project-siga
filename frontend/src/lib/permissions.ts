@@ -15,6 +15,7 @@ export const PERMS = {
 
   HARVEST_PRODUCTION_ORDERS_VIEW: 'harvest.production_orders.view',
   HARVEST_PRODUCTION_ORDERS_CREATE: 'harvest.production_orders.create',
+  HARVEST_PRODUCTION_ORDERS_REOPEN: 'harvest.production_orders.reopen',
 
   POSTHARVEST_REMISSIONS_VIEW: 'postharvest.remissions.view',
   POSTHARVEST_REMISSIONS_APPROVE: 'postharvest.remissions.approve',
@@ -90,6 +91,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     items: [
       { key: PERMS.HARVEST_PRODUCTION_ORDERS_VIEW, label: 'Ver órdenes', kind: 'view' },
       { key: PERMS.HARVEST_PRODUCTION_ORDERS_CREATE, label: 'Crear órdenes', kind: 'action' },
+      { key: PERMS.HARVEST_PRODUCTION_ORDERS_REOPEN, label: 'Reabrir / recalcular / corregir fecha de órdenes', kind: 'action' },
     ],
   },
   {
@@ -142,6 +144,7 @@ export const PERMISSION_PRESETS: { label: string; description: string; permissio
       PERMS.HARVEST_REMISSIONS_REOPEN,
       PERMS.HARVEST_PRODUCTION_ORDERS_VIEW,
       PERMS.HARVEST_PRODUCTION_ORDERS_CREATE,
+      PERMS.HARVEST_PRODUCTION_ORDERS_REOPEN,
     ],
   },
   {
@@ -168,6 +171,7 @@ export const PERMISSION_PRESETS: { label: string; description: string; permissio
       PERMS.HARVEST_REMISSIONS_REOPEN,
       PERMS.HARVEST_PRODUCTION_ORDERS_VIEW,
       PERMS.HARVEST_PRODUCTION_ORDERS_CREATE,
+      PERMS.HARVEST_PRODUCTION_ORDERS_REOPEN,
       PERMS.POSTHARVEST_REMISSIONS_VIEW,
       PERMS.POSTHARVEST_REMISSIONS_APPROVE,
       PERMS.POSTHARVEST_REMISSIONS_REJECT,
