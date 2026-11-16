@@ -20,6 +20,7 @@ import { Select } from '../components/ui/Select';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Table } from '../components/ui/Table';
 import { Modal } from '../components/ui/Modal';
+import { Pager } from '../components/ui/Pager';
 import { OperatorStatusBanner } from '../components/OperatorStatusBanner';
 import { Alert, Badge, Spinner } from '../components/ui/misc';
 import type {
@@ -63,6 +64,8 @@ export default function RemissionsPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
+  const [candPage, setCandPage] = useState(1);
+  const [candPageSize, setCandPageSize] = useState(50);
 
   const farmLots = useMemo(
     () => (lots.data ?? []).filter((l) => l.farmId === farmId),
@@ -74,6 +77,7 @@ export default function RemissionsPage() {
     setSelected(new Set());
     setRangeFrom('');
     setRangeTo('');
+    setCandPage(1);
   };
 
   const loadCandidates = async () => {
@@ -95,6 +99,10 @@ export default function RemissionsPage() {
 
   const records = cands?.records ?? [];
   const selectable = records.filter(isSelectable);
+  // Paginación en cliente: la selección (rango, "todos", casillas) abarca todas las páginas.
+  const candPages = Math.max(1, Math.ceil(records.length / candPageSize));
+  const candPageSafe = Math.min(candPage, candPages);
+  const pagedRecords = records.slice((candPageSafe - 1) * candPageSize, candPageSafe * candPageSize);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -296,7 +304,7 @@ export default function RemissionsPage() {
 
                   <Table<RemissionCandidate>
                     keyField={(c) => c.id}
-                    rows={records}
+                    rows={pagedRecords}
                     columns={[
                       {
                         header: '',
@@ -328,6 +336,17 @@ export default function RemissionsPage() {
                           ),
                       },
                     ]}
+                  />
+                  <Pager
+                    page={candPageSafe}
+                    pageSize={candPageSize}
+                    total={records.length}
+                    onPage={setCandPage}
+                    onPageSize={(s) => {
+                      setCandPageSize(s);
+                      setCandPage(1);
+                    }}
+                    sizes={[25, 50, 100, 200]}
                   />
 
                   {/* Resumen de la selección */}
@@ -398,6 +417,7 @@ export default function RemissionsPage() {
         {loading ? (
           <Spinner />
         ) : (
+          <>
           <Table<Remission>
             keyField={(r) => r.id}
             rows={data?.data ?? []}
@@ -422,6 +442,14 @@ export default function RemissionsPage() {
               },
             ]}
           />
+          <Pager
+            page={data?.page ?? 1}
+            pageSize={data?.pageSize ?? filters.pageSize ?? 20}
+            total={data?.total ?? 0}
+            onPage={(p) => setFilters((prev) => ({ ...prev, page: p }))}
+            onPageSize={(s) => setFilters((prev) => ({ ...prev, pageSize: s, page: 1 }))}
+          />
+          </>
         )}
       </div>
 
