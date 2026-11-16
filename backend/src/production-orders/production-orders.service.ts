@@ -52,6 +52,7 @@ export class ProductionOrdersService {
       where: { tenantId: tid, fecha, farmId: query.farmId, status: { not: 'ANULADA' } },
       select: { id: true, documentNumber: true, status: true },
     });
+    const sinRemitir = await this.unremitted(tid, records);
 
     return {
       fecha: query.date,
@@ -76,25 +77,42 @@ export class ProductionOrdersService {
         canastillas: l.canastillas,
       })),
       yaExiste: existing,
+      // Aviso informativo: cosechado ese día que aún no está en ninguna remisión.
+      sinRemitir,
     };
   }
 
-  async create(actor: AuthUser, tenantId: string | null, dto: CreateOrderDto) {
+  /** Registros (válidos) que no pertenecen a ninguna remisión activa. */
+  private async unremitted(
+    tid: string,
+    records: { id: string; pesoGramos: number; canastillas: number }[],
+  ) {
+    if (records.length === 0) return { registros: 0, pesoGramos: 0, canastillas: 0 };
+    const taken = await this.prisma.harvestRemissionSource.findMany({
+      where: {
+        active: true,
+        harvestRecordId: { in: records.map((r) => r.id) },
+        remission: { tenantId: tid, status: { not: 'ANULADA' } },
+      },
+      select: { harvestRecordId: true },
+    });
+    const takenIds = new Set(taken.map((t) => t.harvestRecordId));
+    const rest = records.filter((r) => !takenIds.has(r.id));
+    return {
+      registros: rest.length,
+      pesoGramos: rest.reduce((a, r) => a + r.pesoGramos, 0),
+      canastillas: rest.reduce((a, r) => a + r.canastillas, 0),
+    };
+  }
+
+  /**
+   * Abre la orden del día (sin totales). Las remisiones de esa finca y fecha que ya
+   * existían sin orden se enlazan a ella; las nuevas se enlazan al crearse.
+   */
+  async open(actor: AuthUser, tenantId: string | null, dto: CreateOrderDto) {
     const tid = requireTenant(tenantId);
     await this.aggregation.assertFarm(tid, dto.farmId);
     const fecha = new Date(dto.date);
-
-    const records = await this.aggregation.loadValidRecords(tid, { fecha, farmId: dto.farmId });
-    if (records.length === 0) {
-      throw new BadRequestException(
-        'No existen registros de cosecha para la fecha y finca seleccionadas',
-      );
-    }
-    const agg = aggregateHarvestRecords(records);
-    const sumLot = agg.byLot.reduce((a, l) => a + l.pesoGramos, 0);
-    if (sumLot !== agg.totalPesoGramos) {
-      throw new InternalServerErrorException('Los totales calculados no coinciden');
-    }
 
     // Identidad efectiva (falla si la cuenta requiere trabajador y no hay ninguno).
     const eff = await this.identity.resolveEffectiveActor(actor);
@@ -113,19 +131,14 @@ export class ProductionOrdersService {
           metadata: { fecha: dto.date, farmId: dto.farmId },
         })
         .catch(() => undefined);
-      throw new ConflictException('Ya existe una orden de producción para esta fecha y finca');
+      throw new ConflictException(
+        `Ya existe una orden de producción (${existing.documentNumber}) para esta fecha y finca`,
+      );
     }
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         const seq = await this.sequences.allocate(tx, tid, 'PRODUCTION_ORDER', null);
-
-        // Remisiones del día/finca para trazabilidad (no suman totales).
-        const remissions = await tx.harvestRemission.findMany({
-          where: { tenantId: tid, farmId: dto.farmId, fecha, status: { not: 'ANULADA' } },
-          select: { id: true },
-        });
-
         const order = await tx.productionOrder.create({
           data: {
             tenantId: tid,
@@ -133,50 +146,26 @@ export class ProductionOrdersService {
             fecha,
             sequenceNumber: seq.sequenceNumber,
             documentNumber: seq.documentNumber,
-            status: 'PENDIENTE_ACEPTACION',
-            totalPesoGramos: agg.totalPesoGramos,
-            totalCanastillas: agg.totalCanastillas,
-            lotesIncluidos: agg.byLot.length,
-            registrosIncluidos: agg.registrosIncluidos,
+            status: 'ABIERTA',
+            totalPesoGramos: 0,
+            totalCanastillas: 0,
+            lotesIncluidos: 0,
+            registrosIncluidos: 0,
             createdBy: actor.userId,
             createdByWorkerId: eff.workerId,
             createdByActorName: eff.displayName,
-            qualityDetails: {
-              create: agg.byQuality.map((q) => ({
-                qualityId: q.qualityId,
-                pesoGramos: q.pesoGramos,
-                canastillas: q.canastillas,
-              })),
-            },
-            lotDetails: {
-              create: agg.byLot.map((l) => ({
-                lotId: l.lotId,
-                pesoGramos: l.pesoGramos,
-                canastillas: l.canastillas,
-              })),
-            },
-            // Base granular: una fila por (lote, calidad).
-            lotQualityDetails: {
-              create: agg.byLotQuality.map((x) => ({
-                lotId: x.lotId,
-                qualityId: x.qualityId,
-                pesoGramos: x.pesoGramos,
-                canastillas: x.canastillas,
-              })),
-            },
-            sources: {
-              create: records.map((r) => ({
-                harvestRecordId: r.id,
-                pesoGramosSnapshot: r.pesoGramos,
-                canastillasSnapshot: r.canastillas,
-                lotIdSnapshot: r.lotId,
-                qualityIdSnapshot: r.qualityId,
-              })),
-            },
-            remissionLinks: {
-              create: remissions.map((rem) => ({ remissionId: rem.id })),
-            },
           },
+        });
+        // Remisiones del día y finca creadas antes de abrir la orden.
+        const adopted = await tx.harvestRemission.updateMany({
+          where: {
+            tenantId: tid,
+            farmId: dto.farmId,
+            fecha,
+            status: { not: 'ANULADA' },
+            productionOrderId: null,
+          },
+          data: { productionOrderId: order.id },
         });
         await this.events.record(tx, {
           tenantId: tid,
@@ -184,8 +173,8 @@ export class ProductionOrdersService {
           documentId: order.id,
           event: 'CREATED',
           userId: actor.userId,
-          newStatus: 'PENDIENTE_ACEPTACION',
-          metadata: { documentNumber: order.documentNumber },
+          newStatus: 'ABIERTA',
+          metadata: { documentNumber: order.documentNumber, remisionesEnlazadas: adopted.count },
         });
         return order;
       });
@@ -196,6 +185,118 @@ export class ProductionOrdersService {
       }
       throw e;
     }
+  }
+
+  /**
+   * "Cerrar y calcular": toma TODOS los registros de cosecha de la finca en la fecha
+   * (estén remitidos o no) y calcula los totales. La orden pasa a pendiente de aceptación
+   * y deja de recibir remisiones.
+   */
+  async close(actor: AuthUser, tenantId: string | null, id: string) {
+    const tid = requireTenant(tenantId);
+    const order = await this.prisma.productionOrder.findFirst({ where: { id, tenantId: tid } });
+    if (!order) throw new NotFoundException('Orden de producción no encontrada');
+    if (order.status !== 'ABIERTA') {
+      throw new ConflictException('Solo se puede cerrar y calcular una orden abierta');
+    }
+
+    const records = await this.aggregation.loadValidRecords(tid, {
+      fecha: order.fecha,
+      farmId: order.farmId,
+    });
+    if (records.length === 0) {
+      throw new BadRequestException(
+        'No existen registros de cosecha para la fecha y finca de la orden',
+      );
+    }
+    const agg = aggregateHarvestRecords(records);
+    const sumLot = agg.byLot.reduce((a, l) => a + l.pesoGramos, 0);
+    if (sumLot !== agg.totalPesoGramos) {
+      throw new InternalServerErrorException('Los totales calculados no coinciden');
+    }
+    const sinRemitir = await this.unremitted(tid, records);
+    await this.identity.resolveEffectiveActor(actor);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Cierre atómico: solo si sigue ABIERTA (evita dos cierres simultáneos).
+      const updated = await tx.productionOrder.updateMany({
+        where: { id, tenantId: tid, status: 'ABIERTA' },
+        data: {
+          status: 'PENDIENTE_ACEPTACION',
+          totalPesoGramos: agg.totalPesoGramos,
+          totalCanastillas: agg.totalCanastillas,
+          lotesIncluidos: agg.byLot.length,
+          registrosIncluidos: agg.registrosIncluidos,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) throw new ConflictException('La orden ya fue cerrada');
+
+      await tx.productionOrderQualityDetail.createMany({
+        data: agg.byQuality.map((q) => ({
+          productionOrderId: id,
+          qualityId: q.qualityId,
+          pesoGramos: q.pesoGramos,
+          canastillas: q.canastillas,
+        })),
+      });
+      await tx.productionOrderLotDetail.createMany({
+        data: agg.byLot.map((l) => ({
+          productionOrderId: id,
+          lotId: l.lotId,
+          pesoGramos: l.pesoGramos,
+          canastillas: l.canastillas,
+        })),
+      });
+      // Base granular: una fila por (lote, calidad).
+      await tx.productionOrderLotQualityDetail.createMany({
+        data: agg.byLotQuality.map((x) => ({
+          productionOrderId: id,
+          lotId: x.lotId,
+          qualityId: x.qualityId,
+          pesoGramos: x.pesoGramos,
+          canastillas: x.canastillas,
+        })),
+      });
+      await tx.productionOrderSource.createMany({
+        data: records.map((r) => ({
+          productionOrderId: id,
+          harvestRecordId: r.id,
+          pesoGramosSnapshot: r.pesoGramos,
+          canastillasSnapshot: r.canastillas,
+          lotIdSnapshot: r.lotId,
+          qualityIdSnapshot: r.qualityId,
+        })),
+      });
+      // Remisiones del día que aún no estaban enlazadas.
+      await tx.harvestRemission.updateMany({
+        where: {
+          tenantId: tid,
+          farmId: order.farmId,
+          fecha: order.fecha,
+          status: { not: 'ANULADA' },
+          productionOrderId: null,
+        },
+        data: { productionOrderId: id },
+      });
+      await this.events.record(tx, {
+        tenantId: tid,
+        documentType: 'PRODUCTION_ORDER',
+        documentId: id,
+        event: 'STATUS_CHANGE',
+        userId: actor.userId,
+        previousStatus: 'ABIERTA',
+        newStatus: 'PENDIENTE_ACEPTACION',
+        metadata: {
+          action: 'close_calculate',
+          totalPesoGramos: agg.totalPesoGramos,
+          totalCanastillas: agg.totalCanastillas,
+          registros: agg.registrosIncluidos,
+          sinRemitir,
+        },
+      });
+    });
+    return this.findOne(tenantId, id);
   }
 
   async list(tenantId: string | null, query: ListOrdersQueryDto) {
@@ -239,7 +340,6 @@ export class ProductionOrdersService {
         lotDetails: true,
         lotQualityDetails: true,
         sources: true,
-        remissionLinks: true,
       },
     });
     if (!order) throw new NotFoundException('Orden de producción no encontrada');
@@ -252,6 +352,9 @@ export class ProductionOrdersService {
     if (!order) throw new NotFoundException('Orden de producción no encontrada');
     if (order.status === 'ANULADA') {
       throw new ConflictException('La orden está anulada');
+    }
+    if (order.status === 'ABIERTA') {
+      throw new ConflictException('La orden sigue abierta: ciérrala y calcúlala antes de aceptarla');
     }
 
     const eff = await this.identity.resolveEffectiveActor(actor);
@@ -337,7 +440,6 @@ export class ProductionOrdersService {
         lotDetails: true;
         lotQualityDetails: true;
         sources: true;
-        remissionLinks: true;
       };
     }>,
   ) {
@@ -353,7 +455,6 @@ export class ProductionOrdersService {
         ...order.lotQualityDetails.map((d) => d.lotId),
       ]),
     ];
-    const remissionIds = order.remissionLinks.map((l) => l.remissionId);
     const userIds = [order.createdBy, order.acceptedBy].filter(Boolean) as string[];
 
     const [farm, users, qualities, lots, remissions] = await Promise.all([
@@ -362,13 +463,29 @@ export class ProductionOrdersService {
       this.prisma.quality.findMany({ where: { id: { in: qualityIds } }, select: { id: true, nombre: true } }),
       this.prisma.lot.findMany({ where: { id: { in: lotIds } }, select: { id: true, nombreLote: true } }),
       this.prisma.harvestRemission.findMany({
-        where: { id: { in: remissionIds } },
-        select: { id: true, documentNumber: true, status: true },
+        where: { tenantId: order.tenantId, productionOrderId: order.id },
+        orderBy: { sequenceNumber: 'asc' },
+        select: {
+          id: true,
+          documentNumber: true,
+          status: true,
+          lotId: true,
+          totalPesoGramos: true,
+          totalCanastillas: true,
+        },
       }),
     ]);
     const uMap = new Map(users.map((u) => [u.id, u.nombre]));
     const qMap = new Map(qualities.map((q) => [q.id, q.nombre]));
     const lMap = new Map(lots.map((l) => [l.id, l.nombreLote]));
+    const remLotIds = [...new Set(remissions.map((r) => r.lotId).filter((x) => !lMap.has(x)))];
+    if (remLotIds.length > 0) {
+      const extra = await this.prisma.lot.findMany({
+        where: { id: { in: remLotIds } },
+        select: { id: true, nombreLote: true },
+      });
+      extra.forEach((l) => lMap.set(l.id, l.nombreLote));
+    }
 
     return {
       ...order,
@@ -408,7 +525,7 @@ export class ProductionOrdersService {
         qualityNombre: qMap.get(d.qualityId) ?? null,
         pesoKg: d.pesoGramos / 1000,
       })),
-      remisiones: remissions,
+      remisiones: remissions.map((r) => ({ ...r, lotNombre: lMap.get(r.lotId) ?? null })),
     };
   }
 }

@@ -1,15 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardCheck, Eye, Search } from 'lucide-react';
+import { Eye, FolderOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { listFarms } from '../services/farms';
-import {
-  createOrder,
-  listOrders,
-  previewOrder,
-  type OrderFilters,
-} from '../services/productionOrders';
+import { listOrders, openOrder, type OrderFilters } from '../services/productionOrders';
 import { getApiErrorMessage } from '../lib/api';
 import { formatWeight } from '../lib/weight';
 import { PERMS } from '../lib/permissions';
@@ -18,16 +13,17 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { Table } from '../components/ui/Table';
-import { Modal } from '../components/ui/Modal';
+import { Pager } from '../components/ui/Pager';
 import { OperatorStatusBanner } from '../components/OperatorStatusBanner';
 import { Alert, Badge, Spinner } from '../components/ui/misc';
-import type { OrderPreview, ProductionOrder, ProductionOrderStatus } from '../types';
+import type { ProductionOrder, ProductionOrderStatus } from '../types';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 function StatusBadge({ status }: { status: ProductionOrderStatus }) {
   if (status === 'ACEPTADA') return <Badge color="green">Aceptada</Badge>;
   if (status === 'ANULADA') return <Badge color="red">Anulada</Badge>;
+  if (status === 'ABIERTA') return <Badge color="blue">Abierta</Badge>;
   return <Badge color="amber">Pendiente aceptación</Badge>;
 }
 
@@ -42,42 +38,23 @@ export default function ProductionOrdersPage() {
 
   const [date, setDate] = useState(today());
   const [farmId, setFarmId] = useState('');
-  const [preview, setPreview] = useState<OrderPreview | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
 
-  const doPreview = async () => {
-    setPreviewError(null);
-    setPreview(null);
+  const doOpen = async () => {
+    setOpenError(null);
     if (!farmId) {
-      setPreviewError('Selecciona una finca');
+      setOpenError('Selecciona una finca');
       return;
     }
-    setPreviewLoading(true);
+    setOpening(true);
     try {
-      setPreview(await previewOrder({ date, farmId }));
-    } catch (e) {
-      setPreviewError(getApiErrorMessage(e));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const doCreate = async () => {
-    setCreating(true);
-    setPreviewError(null);
-    try {
-      const order = await createOrder({ date, farmId });
-      setConfirmOpen(false);
-      setPreview(null);
+      const order = await openOrder({ date, farmId });
       navigate(`/production-orders/${order.id}`);
     } catch (e) {
-      setPreviewError(getApiErrorMessage(e));
-      setConfirmOpen(false);
+      setOpenError(getApiErrorMessage(e));
     } finally {
-      setCreating(false);
+      setOpening(false);
     }
   };
 
@@ -89,101 +66,38 @@ export default function ProductionOrdersPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-bold text-content">Órdenes de producción</h1>
-        <p className="text-sm text-muted">Consolidado diario por finca entregado desde Cosecha.</p>
+        <p className="text-sm text-muted">
+          La orden se abre al iniciar el día, recibe las remisiones y se cierra al final con el
+          consolidado de toda la cosecha de la finca.
+        </p>
       </div>
 
-      {/* Generar */}
+      {/* Abrir */}
       {canCreate && (
-      <div className="space-y-4 rounded-xl border border-border bg-surface p-4 shadow-card">
-        <h2 className="font-semibold text-content">Generar orden de producción</h2>
-        <OperatorStatusBanner onBlockedChange={setOpBlocked} />
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Input label="Fecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <SearchableSelect
-            label="Finca"
-            value={farmId}
-            onChange={(v) => {
-              setFarmId(v);
-              setPreview(null);
-            }}
-            options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
-          />
-          <div className="flex items-end">
-            <Button leftIcon={<Search size={16} />} onClick={doPreview} disabled={previewLoading || !farmId} className="w-full">
-              {previewLoading ? 'Consultando…' : 'Vista previa'}
-            </Button>
+        <div className="space-y-4 rounded-xl border border-border bg-surface p-4 shadow-card">
+          <h2 className="font-semibold text-content">Abrir orden del día</h2>
+          <OperatorStatusBanner onBlockedChange={setOpBlocked} />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Input label="Fecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <SearchableSelect
+              label="Finca"
+              value={farmId}
+              onChange={setFarmId}
+              options={(farms.data ?? []).map((f) => ({ value: f.id, label: f.nombre }))}
+            />
+            <div className="flex items-end">
+              <Button
+                leftIcon={<FolderOpen size={16} />}
+                onClick={doOpen}
+                disabled={opening || !farmId || opBlocked}
+                className="w-full"
+              >
+                {opening ? 'Abriendo…' : 'Abrir orden'}
+              </Button>
+            </div>
           </div>
+          {openError && <Alert>{openError}</Alert>}
         </div>
-
-        {previewError && <Alert>{previewError}</Alert>}
-
-        {preview && (
-          <div className="space-y-3">
-            {preview.yaExiste && (
-              <Alert variant="warning">
-                Ya existe una orden ({preview.yaExiste.documentNumber}) para esta fecha y finca.
-              </Alert>
-            )}
-            <div className="grid gap-3 rounded-lg bg-primary-light p-4 sm:grid-cols-4">
-              <div>
-                <div className="text-xs text-muted">Total kilogramos</div>
-                <div className="text-lg font-bold text-primary">{fmtW(preview.totalPesoGramos)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted">Total canastillas</div>
-                <div className="text-lg font-bold text-content">{preview.totalCanastillas}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted">Lotes</div>
-                <div className="text-lg font-bold text-content">{preview.lotesIncluidos}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted">Registros</div>
-                <div className="text-lg font-bold text-content">{preview.registrosIncluidos}</div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div>
-                <h3 className="mb-1 text-sm font-semibold text-content">Por calidad</h3>
-                <Table
-                  keyField={(q) => q.qualityId}
-                  rows={preview.byQuality}
-                  columns={[
-                    { header: 'Calidad', render: (q) => q.qualityNombre ?? q.qualityId },
-                    { header: 'Peso', render: (q) => fmtW(q.pesoGramos), className: 'text-right' },
-                    { header: 'Canast.', render: (q) => q.canastillas, className: 'text-right' },
-                  ]}
-                />
-              </div>
-              <div>
-                <h3 className="mb-1 text-sm font-semibold text-content">Por lote</h3>
-                <Table
-                  keyField={(l) => l.lotId}
-                  rows={preview.byLot}
-                  columns={[
-                    { header: 'Lote', render: (l) => l.lotNombre ?? l.lotId },
-                    { header: 'Peso', render: (l) => fmtW(l.pesoGramos), className: 'text-right' },
-                    { header: 'Canast.', render: (l) => l.canastillas, className: 'text-right' },
-                  ]}
-                />
-              </div>
-            </div>
-
-            {canCreate && preview.registrosIncluidos > 0 && !preview.yaExiste && (
-              <div className="flex justify-end">
-                <Button
-                  leftIcon={<ClipboardCheck size={16} />}
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={opBlocked}
-                >
-                  Crear orden de producción
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
       )}
 
       {/* Historial */}
@@ -201,6 +115,7 @@ export default function ProductionOrdersPage() {
           />
           <Select label="Estado" onChange={(e) => setFilter({ status: (e.target.value || undefined) as ProductionOrderStatus })}>
             <option value="">Todos</option>
+            <option value="ABIERTA">Abierta</option>
             <option value="PENDIENTE_ACEPTACION">Pendiente aceptación</option>
             <option value="ACEPTADA">Aceptada</option>
             <option value="ANULADA">Anulada</option>
@@ -211,6 +126,7 @@ export default function ProductionOrdersPage() {
         {loading ? (
           <Spinner />
         ) : (
+          <>
           <Table<ProductionOrder>
             keyField={(r) => r.id}
             rows={data?.data ?? []}
@@ -234,33 +150,16 @@ export default function ProductionOrdersPage() {
               },
             ]}
           />
+          <Pager
+            page={data?.page ?? 1}
+            pageSize={data?.pageSize ?? filters.pageSize ?? 20}
+            total={data?.total ?? 0}
+            onPage={(p) => setFilters((prev) => ({ ...prev, page: p }))}
+            onPageSize={(sz) => setFilters((prev) => ({ ...prev, pageSize: sz, page: 1 }))}
+          />
+          </>
         )}
       </div>
-
-      <Modal
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title="Confirmar creación de orden"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
-            <Button onClick={doCreate} disabled={creating}>
-              {creating ? 'Creando…' : 'Confirmar y crear'}
-            </Button>
-          </>
-        }
-      >
-        {preview && (
-          <div className="space-y-2 text-sm text-content">
-            <p>Se creará una orden de producción con estos totales (calculados por el sistema):</p>
-            <ul className="list-inside list-disc text-muted">
-              <li>Finca: <span className="font-medium text-content">{preview.farm.nombre}</span></li>
-              <li>Total: <span className="font-medium text-content">{fmtW(preview.totalPesoGramos)} · {preview.totalCanastillas} canastillas</span></li>
-              <li>Lotes: <span className="font-medium text-content">{preview.lotesIncluidos}</span> · Registros: <span className="font-medium text-content">{preview.registrosIncluidos}</span></li>
-            </ul>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }
