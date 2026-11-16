@@ -14,7 +14,9 @@ import { DocumentEventService } from '../documents/document-event.service';
 import {
   aggregateHarvestRecords,
   HarvestAggregationService,
+  ValidHarvestRecord,
 } from '../documents/harvest-aggregation.service';
+import { compressRecordNumbers } from '../documents/record-ranges.util';
 import {
   buildActorView,
   EffectiveActor,
@@ -42,7 +44,13 @@ export class HarvestRemissionsService {
     const farm = await this.aggregation.assertFarm(tid, lot.farmId);
     const fecha = new Date(query.date);
 
-    const records = await this.aggregation.loadValidRecords(tid, { fecha, lotId: query.lotId });
+    // Solo lo PENDIENTE de remitir (los registros ya incluidos en otra remisión no cuentan).
+    const taken = await this.takenRecords(tid, fecha, query.lotId);
+    const records = await this.aggregation.loadValidRecords(tid, {
+      fecha,
+      lotId: query.lotId,
+      excludeIds: [...taken.keys()],
+    });
     const agg = aggregateHarvestRecords(records);
     const { qualityName } = await this.aggregation.resolveNames(
       tid,
@@ -50,10 +58,8 @@ export class HarvestRemissionsService {
       [],
     );
 
-    const existing = await this.prisma.harvestRemission.findFirst({
-      where: { tenantId: tid, fecha, lotId: query.lotId, status: { not: 'ANULADA' } },
-      select: { id: true, documentNumber: true, status: true },
-    });
+    // Ya no hay límite de una remisión por día y lote: se pueden hacer varias parciales.
+    const existing = null;
 
     return {
       fecha: query.date,
@@ -74,15 +80,109 @@ export class HarvestRemissionsService {
     };
   }
 
+  /** Registros ya incluidos en una remisión ACTIVA (id registro → n.° de remisión). */
+  private async takenRecords(tid: string, fecha: Date, lotId: string): Promise<Map<string, string>> {
+    const rows = await this.prisma.harvestRemissionSource.findMany({
+      where: {
+        active: true,
+        remission: { tenantId: tid, fecha, lotId, status: { not: 'ANULADA' } },
+      },
+      select: { harvestRecordId: true, remission: { select: { documentNumber: true } } },
+    });
+    return new Map(rows.map((r) => [r.harvestRecordId, r.remission.documentNumber]));
+  }
+
+  /**
+   * Registros de un lote y día para armar una remisión parcial: cada uno indica
+   * si ya fue incluido en otra remisión.
+   */
+  async candidates(tenantId: string | null, query: RemissionPreviewQueryDto) {
+    const tid = requireTenant(tenantId);
+    const lot = await this.aggregation.assertLot(tid, query.lotId);
+    const farm = await this.aggregation.assertFarm(tid, lot.farmId);
+    const fecha = new Date(query.date);
+
+    const [records, taken] = await Promise.all([
+      this.prisma.harvestRecord.findMany({
+        where: { tenantId: tid, fecha, lotId: query.lotId, status: 'ACTIVE' },
+        orderBy: [{ recordNumber: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          recordNumber: true,
+          gramosCosechados: true,
+          qualityId: true,
+          quality: { select: { nombre: true } },
+          worker: { select: { codigoInterno: true, nombre: true } },
+          containers: { select: { unidades: true } },
+        },
+      }),
+      this.takenRecords(tid, fecha, query.lotId),
+    ]);
+
+    const items = records.map((r) => {
+      const canastillas = r.containers.reduce((a, c) => a + c.unidades, 0);
+      return {
+        id: r.id,
+        recordNumber: r.recordNumber,
+        workerCodigo: r.worker.codigoInterno,
+        workerNombre: r.worker.nombre,
+        qualityId: r.qualityId,
+        qualityNombre: r.quality.nombre,
+        pesoGramos: r.gramosCosechados,
+        canastillas,
+        // Un registro sin peso o sin canastillas no se puede remitir.
+        valido: r.gramosCosechados > 0 && canastillas > 0,
+        remision: taken.get(r.id) ?? null,
+      };
+    });
+
+    return {
+      fecha: query.date,
+      farm: { id: farm.id, nombre: farm.nombre },
+      lot: { id: lot.id, nombreLote: lot.nombreLote },
+      records: items,
+      pendientes: items.filter((i) => !i.remision && i.valido).length,
+    };
+  }
+
   async create(actor: AuthUser, tenantId: string | null, dto: CreateRemissionDto) {
     const tid = requireTenant(tenantId);
     const lot = await this.aggregation.assertLot(tid, dto.lotId);
     const fecha = new Date(dto.date);
 
-    const records = await this.aggregation.loadValidRecords(tid, { fecha, lotId: dto.lotId });
+    // Registros ya incluidos en otra remisión activa (exclusividad).
+    const taken = await this.takenRecords(tid, fecha, dto.lotId);
+
+    let records: ValidHarvestRecord[];
+    if (dto.recordIds) {
+      const clash = dto.recordIds.filter((id) => taken.has(id));
+      if (clash.length > 0) {
+        const nums = [...new Set(clash.map((id) => taken.get(id)))].join(', ');
+        throw new ConflictException(
+          `Algunos registros ya están incluidos en otra remisión (${nums}). Vuelve a consultar los pendientes.`,
+        );
+      }
+      records = await this.aggregation.loadValidRecords(tid, {
+        fecha,
+        lotId: dto.lotId,
+        ids: dto.recordIds,
+      });
+      if (records.length !== dto.recordIds.length) {
+        throw new BadRequestException(
+          'Algunos registros no existen, están anulados o no pertenecen al lote y la fecha indicados',
+        );
+      }
+    } else {
+      // Sin selección: todo lo pendiente del lote y día.
+      records = await this.aggregation.loadValidRecords(tid, {
+        fecha,
+        lotId: dto.lotId,
+        excludeIds: [...taken.keys()],
+      });
+    }
     if (records.length === 0) {
       throw new BadRequestException(
-        'No existen registros de cosecha para la fecha y lote seleccionados',
+        'No hay registros de cosecha pendientes de remitir para la fecha y lote seleccionados',
       );
     }
     const agg = aggregateHarvestRecords(records);
@@ -93,24 +193,6 @@ export class HarvestRemissionsService {
 
     // Identidad efectiva (falla si la cuenta requiere trabajador y no hay ninguno).
     const eff = await this.identity.resolveEffectiveActor(actor);
-
-    // Pre-chequeo de duplicado (mensaje claro + evento de intento).
-    const existing = await this.prisma.harvestRemission.findFirst({
-      where: { tenantId: tid, fecha, lotId: dto.lotId, status: { not: 'ANULADA' } },
-    });
-    if (existing) {
-      await this.events
-        .record(this.prisma, {
-          tenantId: tid,
-          documentType: 'REMISSION',
-          documentId: existing.id,
-          event: 'DUPLICATE_ATTEMPT',
-          userId: actor.userId,
-          metadata: { fecha: dto.date, lotId: dto.lotId },
-        })
-        .catch(() => undefined);
-      throw new ConflictException('Ya existe una remisión para esta fecha y lote');
-    }
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
@@ -161,7 +243,10 @@ export class HarvestRemissionsService {
       return this.findOne(tenantId, created.id);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Ya existe una remisión para esta fecha y lote');
+        // Índice único parcial: otro usuario remitió alguno de estos registros al mismo tiempo.
+        throw new ConflictException(
+          'Alguno de los registros acaba de ser incluido en otra remisión. Vuelve a consultar los pendientes.',
+        );
       }
       throw e;
     }
@@ -326,6 +411,33 @@ export class HarvestRemissionsService {
     });
   }
 
+  /** Etiqueta del rango de N.° de registro de cada remisión ("#1580–1620"). */
+  private async recordRanges(remissionIds: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (remissionIds.length === 0) return out;
+
+    const sources = await this.prisma.harvestRemissionSource.findMany({
+      where: { remissionId: { in: remissionIds } },
+      select: { remissionId: true, harvestRecordId: true },
+    });
+    if (sources.length === 0) return out;
+
+    const records = await this.prisma.harvestRecord.findMany({
+      where: { id: { in: [...new Set(sources.map((s) => s.harvestRecordId))] } },
+      select: { id: true, recordNumber: true },
+    });
+    const numberById = new Map(records.map((r) => [r.id, r.recordNumber]));
+
+    const byRemission = new Map<string, (number | null | undefined)[]>();
+    for (const s of sources) {
+      const arr = byRemission.get(s.remissionId) ?? [];
+      arr.push(numberById.get(s.harvestRecordId));
+      byRemission.set(s.remissionId, arr);
+    }
+    for (const [id, nums] of byRemission) out.set(id, compressRecordNumbers(nums));
+    return out;
+  }
+
   // ---- Enriquecimiento con nombres (relaciones a entidades existentes son escalares) ----
 
   private async enrichList(rows: HarvestRemission[]) {
@@ -342,9 +454,11 @@ export class HarvestRemissionsService {
     const fMap = new Map(farms.map((f) => [f.id, f.nombre]));
     const lMap = new Map(lots.map((l) => [l.id, l.nombreLote]));
     const uMap = new Map(users.map((u) => [u.id, u.nombre]));
+    const ranges = await this.recordRanges(rows.map((r) => r.id));
 
     return rows.map((r) => ({
       ...r,
+      registrosRango: ranges.get(r.id) ?? '',
       totalPesoKg: r.totalPesoGramos / 1000,
       farmNombre: fMap.get(r.farmId) ?? null,
       lotNombre: lMap.get(r.lotId) ?? null,
@@ -379,9 +493,11 @@ export class HarvestRemissionsService {
     ]);
     const uMap = new Map(users.map((u) => [u.id, u.nombre]));
     const qMap = new Map(qualities.map((q) => [q.id, q.nombre]));
+    const ranges = await this.recordRanges([remission.id]);
 
     return {
       ...remission,
+      registrosRango: ranges.get(remission.id) ?? '',
       totalPesoKg: remission.totalPesoGramos / 1000,
       farmNombre: farm?.nombre ?? null,
       lotNombre: lot?.nombreLote ?? null,

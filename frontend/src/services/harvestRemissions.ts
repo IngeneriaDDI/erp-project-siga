@@ -1,5 +1,11 @@
 import { api } from '../lib/api';
-import type { Paginated, Remission, RemissionPreview, RemissionStatus } from '../types';
+import type {
+  Paginated,
+  Remission,
+  RemissionCandidates,
+  RemissionPreview,
+  RemissionStatus,
+} from '../types';
 
 export interface RemissionFilters {
   fechaDesde?: string;
@@ -15,7 +21,12 @@ export interface RemissionFilters {
 export const previewRemission = (params: { date: string; lotId: string }) =>
   api.get<RemissionPreview>('/harvest-remissions/preview', { params }).then((r) => r.data);
 
-export const createRemission = (body: { date: string; lotId: string }) =>
+// Registros del lote y día disponibles para armar una remisión parcial.
+export const getRemissionCandidates = (params: { date: string; lotId: string }) =>
+  api.get<RemissionCandidates>('/harvest-remissions/candidates', { params }).then((r) => r.data);
+
+// Sin recordIds = todo lo pendiente del lote y día.
+export const createRemission = (body: { date: string; lotId: string; recordIds?: string[] }) =>
   api.post<Remission>('/harvest-remissions', body).then((r) => r.data);
 
 export const listRemissions = (params?: RemissionFilters) =>

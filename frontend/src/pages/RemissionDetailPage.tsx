@@ -118,6 +118,7 @@ export default function RemissionDetailPage() {
         <Field label="Total peso" value={fmtW(rem.totalPesoGramos)} />
         <Field label="Total canastillas" value={rem.totalCanastillas} />
         <Field label="Registros incluidos" value={rem.registrosIncluidos} />
+        <Field label="N.° de registros" value={rem.registrosRango || '—'} />
         <Field label="Creada por" value={rem.createdByNombre} />
       </div>
 

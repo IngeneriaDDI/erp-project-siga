@@ -1,4 +1,8 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -24,6 +28,16 @@ export class CreateRemissionDto {
 
   @IsUUID()
   lotId!: string;
+
+  // Remisión parcial: registros elegidos. Si se omite, se incluyen TODOS los
+  // registros del lote y día que aún no están en otra remisión.
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  recordIds?: string[];
 }
 
 export class ListRemissionsQueryDto {

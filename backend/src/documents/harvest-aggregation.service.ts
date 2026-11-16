@@ -22,8 +22,20 @@ export class HarvestAggregationService {
    */
   async loadValidRecords(
     tenantId: string,
-    filters: { fecha: Date; lotId?: string; farmId?: string },
+    filters: {
+      fecha: Date;
+      lotId?: string;
+      farmId?: string;
+      /** Solo estos registros (remisiones parciales). */
+      ids?: string[];
+      /** Excluye estos registros (p. ej. los ya incluidos en otra remisión). */
+      excludeIds?: string[];
+    },
   ): Promise<ValidHarvestRecord[]> {
+    const idFilter: { in?: string[]; notIn?: string[] } = {};
+    if (filters.ids) idFilter.in = filters.ids;
+    if (filters.excludeIds?.length) idFilter.notIn = filters.excludeIds;
+
     const records = await this.prisma.harvestRecord.findMany({
       where: {
         tenantId,
@@ -31,6 +43,7 @@ export class HarvestAggregationService {
         lotId: filters.lotId,
         farmId: filters.farmId,
         status: 'ACTIVE',
+        ...(Object.keys(idFilter).length ? { id: idFilter } : {}),
       },
       select: {
         id: true,

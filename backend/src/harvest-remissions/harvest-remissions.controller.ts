@@ -36,6 +36,13 @@ export class HarvestRemissionsController {
     return this.service.preview(tenantId, query);
   }
 
+  // Registros del lote y día disponibles para una remisión parcial.
+  @RequirePermissions(PERMISSIONS.HARVEST_REMISSIONS_CREATE)
+  @Get('candidates')
+  candidates(@TenantId() tenantId: string | null, @Query() query: RemissionPreviewQueryDto) {
+    return this.service.candidates(tenantId, query);
+  }
+
   @RequireAnyPermissions(...VIEW_REMISSIONS)
   @Get()
   list(@TenantId() tenantId: string | null, @Query() query: ListRemissionsQueryDto) {
