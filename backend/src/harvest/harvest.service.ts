@@ -8,6 +8,7 @@ import { HarvestConfigurableField } from '../common/constants/harvest-fields';
 import { OperationalIdentityService } from '../operational/operational-identity.service';
 import { isWorkerAllowedForFarm } from '../workers/workers-farm-filter.util';
 import { calcularCosecha } from './harvest.calc';
+import { allocateRecordNumbers } from './record-number.util';
 import { QueryHarvestDto, SaveHarvestRecordDto } from './dto/harvest.dto';
 
 const listInclude = {
@@ -95,7 +96,9 @@ export class HarvestService {
       this.prisma.harvestRecord.findMany({
         where,
         include: listInclude,
-        orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }],
+        // Más reciente primero; el N.° desempata de forma determinista dentro del día
+        // (los registros cargados en bloque comparten created_at).
+        orderBy: [{ fecha: 'desc' }, { recordNumber: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -122,15 +125,21 @@ export class HarvestService {
     // Identidad efectiva de quien registra (cuenta operativa → trabajador activo).
     const eff = await this.identity.resolveEffectiveActor(actor);
 
-    return this.prisma.harvestRecord.create({
-      data: {
-        ...header,
-        createdBy: actor.userId,
-        createdByWorkerId: eff.workerId,
-        createdByActorName: eff.displayName,
-        containers: { create: rows },
-      },
-      include: detailInclude,
+    // El número consecutivo se reserva en la MISMA transacción que el registro:
+    // si el insert falla, el contador también se revierte (sin huecos).
+    return this.prisma.$transaction(async (tx) => {
+      const recordNumber = await allocateRecordNumbers(tx, tid, 1);
+      return tx.harvestRecord.create({
+        data: {
+          ...header,
+          recordNumber,
+          createdBy: actor.userId,
+          createdByWorkerId: eff.workerId,
+          createdByActorName: eff.displayName,
+          containers: { create: rows },
+        },
+        include: detailInclude,
+      });
     });
   }
 

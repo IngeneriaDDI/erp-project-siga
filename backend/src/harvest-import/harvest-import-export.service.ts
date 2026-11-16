@@ -6,6 +6,8 @@ import { toCsv } from './csv.util';
 import { IMPORT_COLUMNS, TEMPLATE_COLUMNS } from './harvest-import.constants';
 
 const C = IMPORT_COLUMNS;
+// Columna informativa solo de exportación (el importador la ignora).
+const EXPORT_RECORD_NUMBER_COLUMN = 'numero_registro';
 
 function gramsToUnit(grams: number, unit: WeightUnit): number {
   return unit === 'KILOGRAMS' ? grams / 1000 : grams;
@@ -29,7 +31,7 @@ export class HarvestImportExportService {
     const unit = await this.weightUnit(tid);
     const records = await this.prisma.harvestRecord.findMany({
       where: { tenantId: tid, status: 'ACTIVE' },
-      orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ fecha: 'desc' }, { recordNumber: 'desc' }, { createdAt: 'desc' }],
       take: limit,
       include: {
         farm: { select: { nombre: true } },
@@ -39,6 +41,11 @@ export class HarvestImportExportService {
         containers: { include: { container: { select: { nombre: true } } } },
       },
     });
+
+    // Se exportan los `limit` más recientes, pero el archivo sale en orden
+    // CRONOLÓGICO (antiguo → reciente): al reimportarlo, el consecutivo queda
+    // creciente con la fecha.
+    records.reverse();
 
     const rows: Record<string, unknown>[] = [];
     for (const r of records) {
@@ -57,6 +64,8 @@ export class HarvestImportExportService {
         [C.observaciones]: r.observaciones ?? '',
         // external_id = id del registro → round-trip estable y agrupa multi-canastilla.
         [C.externalId]: r.id,
+        // Informativo (la importación lo ignora): consecutivo legible del registro.
+        [EXPORT_RECORD_NUMBER_COLUMN]: r.recordNumber ?? '',
       };
       const lines = r.containers.length > 0 ? r.containers : [null];
       for (const line of lines) {
@@ -67,7 +76,7 @@ export class HarvestImportExportService {
         });
       }
     }
-    return toCsv(TEMPLATE_COLUMNS, rows);
+    return toCsv([...TEMPLATE_COLUMNS, EXPORT_RECORD_NUMBER_COLUMN], rows);
   }
 
   async referencesWorkers(tenantId: string | null): Promise<string> {

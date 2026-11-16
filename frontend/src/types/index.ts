@@ -184,6 +184,8 @@ export interface HarvestContainer {
 
 export interface HarvestRecord {
   id: string;
+  /** Consecutivo legible por empresa (1, 2, 3…). */
+  recordNumber?: number | null;
   fecha: string;
   variedad: string;
   pesoBrutoGramos: number;
